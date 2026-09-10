@@ -12,6 +12,10 @@ const nextConfig: NextConfig = {
         hostname: "thursd.com",
       },
       {
+        protocol: "https",
+        hostname: "*.onrender.com",
+      },
+      {
         protocol: "http",
         hostname: "localhost",
         port: "3001",
