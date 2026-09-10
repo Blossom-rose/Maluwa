@@ -1,14 +1,17 @@
 import axios, { AxiosInstance } from "axios";
 
-const API_BASE_URL =
+const rawBaseUrl =
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.NEXT_PUBLIC_VITE_API_BASE ||
   process.env.VITE_API_BASE ||
   "https://inventory-management-b74g.onrender.com";
 
+// Normalize base URL (strip trailing slashes)
+const API_BASE_URL = rawBaseUrl.replace(/\/+$/, "");
+
 const api: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000, // Increased from 10000ms to 30000ms (30 seconds)
+  timeout: 45000, // 45 seconds for Render free tier cold starts
   headers: {
     "Content-Type": "application/json",
   },

@@ -34,11 +34,11 @@ function FlowersCatalogContent() {
     const fetchFlowers = async () => {
       try {
         setLoading(true);
-      const filters: any = {};
-if (selectedCategory && selectedCategory !== "ALL") {
-  filters.category = selectedCategory;
-}
-const data = await inventoryService.getAllItems(filters);
+        const filters: any = {};
+        if (selectedCategory && selectedCategory !== "ALL") {
+          filters.category = selectedCategory;
+        }
+        const data = await inventoryService.getAllItems(filters);
         
         // Filter by search query locally
         let filtered = data;
@@ -52,9 +52,10 @@ const data = await inventoryService.getAllItems(filters);
 
         setFlowers(filtered);
         setError(null);
-      } catch (err) {
+      } catch (err: any) {
         console.error("Failed to fetch flowers:", err);
-        setError("Failed to load flowers. Please try again later.");
+        const errorMsg = err.response?.data?.message || "Failed to load flowers from backend server. Please check connection.";
+        setError(errorMsg);
         setFlowers([]);
       } finally {
         setLoading(false);

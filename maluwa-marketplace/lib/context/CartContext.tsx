@@ -42,6 +42,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         setCart(loadedCart);
       } catch (err) {
         console.error("Failed to load cart:", err);
+        setCart(cartService.getEmptyCart());
       } finally {
         setIsLoading(false);
       }

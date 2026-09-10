@@ -69,7 +69,13 @@ export const inventoryService = {
       if (filters?.category) query.append("category", filters.category);
 
       const response = await api.get(`/inventory?${query.toString()}`);
-      return response.data;
+      const raw = response.data;
+      if (Array.isArray(raw)) return raw;
+      if (Array.isArray(raw?.items)) return raw.items;
+      if (Array.isArray(raw?.inventory)) return raw.inventory;
+      if (Array.isArray(raw?.flowers)) return raw.flowers;
+      if (Array.isArray(raw?.data)) return raw.data;
+      return [];
     } catch (error) {
       console.error("Error fetching inventory items:", error);
       throw error;
@@ -80,7 +86,13 @@ export const inventoryService = {
   async getSellerInventory(sellerId: string): Promise<InventoryItem[]> {
     try {
       const response = await api.get(`/inventory/seller/${sellerId}`);
-      return response.data;
+      const raw = response.data;
+      if (Array.isArray(raw)) return raw;
+      if (Array.isArray(raw?.items)) return raw.items;
+      if (Array.isArray(raw?.inventory)) return raw.inventory;
+      if (Array.isArray(raw?.flowers)) return raw.flowers;
+      if (Array.isArray(raw?.data)) return raw.data;
+      return [];
     } catch (error) {
       console.error("Error fetching seller inventory:", error);
       throw error;
