@@ -4,7 +4,7 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.NEXT_PUBLIC_VITE_API_BASE ||
   process.env.VITE_API_BASE ||
-  "https://maluwa-api.onrender.com/api";
+  "https://inventory-management-b74g.onrender.com";
 
 const api: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
