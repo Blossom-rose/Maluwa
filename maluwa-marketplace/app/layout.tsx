@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Source_Serif_4, Be_Vietnam_Pro } from "next/font/google";
 import "./globals.css";
+import { CartProvider } from "@/lib/context/CartContext";
+import { Notifications } from "@/lib/components/Notifications";
+
 
 const sourceSerif = Source_Serif_4({
   variable: "--font-source-serif",
@@ -38,7 +41,10 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-screen bg-background text-on-background font-body-md selection:bg-primary-container selection:text-on-primary-container">
-        {children}
+        <CartProvider>
+          <Notifications />
+          {children}
+        </CartProvider>
       </body>
     </html>
   );

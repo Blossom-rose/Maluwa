@@ -1,263 +1,322 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { inventoryService } from "@/lib/services/inventoryService";
+import { authService } from "@/lib/services/authService";
+import { notificationService } from "@/lib/services/notificationService";
 
-export default function NewFlowerPage() {
+export default function AddNewFlower() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [imagePreview, setImagePreview] = useState<string>("");
+  const [uploadedImageUrl, setUploadedImageUrl] = useState<string>("");
   const [formData, setFormData] = useState({
-    name: "",
-    nameChichewa: "",
-    price: "",
-    category: "Bouquets",
-    stock: "",
+    photoName: "",
     description: "",
-    occasion: [] as string[],
-    imageFile: null as File | null,
+    category: "custom" as const,
+    price: "",
+    countInStock: "",
+    minOrderQuantity: "1",
+    maxOrderQuantity: "",
   });
 
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setFormData({ ...formData, imageFile: file });
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      notificationService.error("Please select an image file");
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      notificationService.error("Image size must be less than 5MB");
+      return;
+    }
+
+    // Create preview
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result as string;
+      setImagePreview(result);
+    };
+    reader.readAsDataURL(file);
+
+    // Upload file to backend
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+
+      const response = await fetch("http://localhost:3001/photos/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Upload failed");
+      }
+
+      const data = await response.json();
+      // Use the URL directly from the response (already fully formed with proper encoding)
+      setUploadedImageUrl(data.url);
+      notificationService.success("Image uploaded successfully!");
+    } catch (error) {
+      console.error("Upload error:", error);
+      notificationService.error("Failed to upload image");
+      setImagePreview("");
+    } finally {
+      setUploading(false);
     }
   };
 
-  const handleOccasionToggle = (occasion: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      occasion: prev.occasion.includes(occasion)
-        ? prev.occasion.filter((o) => o !== occasion)
-        : [...prev.occasion, occasion],
-    }));
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Handle form submission
-    console.log("Form submitted:", formData);
+    setLoading(true);
+
+    try {
+      const user = authService.getUser();
+      if (!user?._id && !user?.id) {
+        notificationService.error("You must be logged in as a seller");
+        return;
+      }
+
+      const sellerId = (user._id || user.id) as string;
+
+      // Validate required fields
+      if (!formData.photoName.trim()) {
+        notificationService.error("Product name is required");
+        return;
+      }
+      if (!formData.price || Number(formData.price) <= 0) {
+        notificationService.error("Valid price is required");
+        return;
+      }
+      if (!formData.countInStock || Number(formData.countInStock) < 0) {
+        notificationService.error("Valid stock count is required");
+        return;
+      }
+      if (!uploadedImageUrl) {
+        notificationService.error("Product image is required");
+        return;
+      }
+
+      await inventoryService.createItem({
+        sellerId,
+        photoName: formData.photoName,
+        description: formData.description,
+        category: formData.category,
+        price: Number(formData.price),
+        countInStock: Number(formData.countInStock),
+        image: uploadedImageUrl,
+        minOrderQuantity: formData.minOrderQuantity ? Number(formData.minOrderQuantity) : 1,
+        maxOrderQuantity: formData.maxOrderQuantity ? Number(formData.maxOrderQuantity) : undefined,
+      });
+
+      notificationService.success("Product added successfully!");
+      router.push("/seller/inventory");
+    } catch (err: any) {
+      console.error("Error creating item:", err);
+      notificationService.error(err.response?.data?.message || "Failed to add product");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="flex-1 overflow-y-auto pb-24 md:pb-8">
-      <div className="max-w-4xl mx-auto px-[20px] py-[32px]">
-        {/* Header */}
-        <div className="mb-8">
-          <Link
-            href="/seller/inventory"
-            className="inline-flex items-center gap-2 text-on-surface-variant hover:text-primary transition-colors mb-4 font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold"
-          >
-            <span className="material-symbols-outlined text-[16px]">arrow_back</span>
-            Back to Inventory
-          </Link>
-          <h1 className="font-[family-name:var(--font-source-serif)] text-[32px] leading-[40px] md:text-[48px] md:leading-[56px] font-bold text-primary">
-            Add New Flower
-          </h1>
-          <p className="font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px] text-on-surface-variant mt-2">
-            List a new botanical product in your Malawi Bloom collection
-          </p>
+    <div className="p-6 pb-20 md:pb-6">
+      <h1 className="font-[family-name:var(--font-source-serif)] text-[32px] leading-[40px] font-semibold text-on-surface mb-8">
+        Add New Flower Product
+      </h1>
+
+      <form onSubmit={handleSubmit} className="max-w-2xl bg-surface rounded-lg shadow-md p-6 border border-outline-variant space-y-6">
+        <div>
+          <label className="block font-bold text-on-surface mb-2">Product Name *</label>
+          <input
+            type="text"
+            name="photoName"
+            value={formData.photoName}
+            onChange={handleChange}
+            placeholder="e.g., Red Roses Bouquet"
+            className="w-full px-4 py-2 border border-outline rounded-lg focus:ring-2 focus:ring-primary"
+            required
+          />
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-8">
-          {/* Basic Information Section */}
-          <section className="bg-surface-container-low rounded-2xl p-6 shadow-sm border border-outline-variant/30">
-            <h2 className="font-[family-name:var(--font-source-serif)] text-[24px] leading-[32px] font-semibold text-on-surface mb-6 flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary">info</span>
-              Basic Information
-            </h2>
+        <div>
+          <label className="block font-bold text-on-surface mb-2">Description</label>
+          <textarea
+            name="description"
+            value={formData.description}
+            onChange={handleChange}
+            placeholder="Describe your product..."
+            rows={4}
+            className="w-full px-4 py-2 border border-outline rounded-lg focus:ring-2 focus:ring-primary"
+          />
+        </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant mb-2">
-                  Flower Name (English) *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="e.g., Luminous Lilies"
-                  className="w-full bg-surface border border-outline-variant rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary transition-all font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px]"
-                />
-              </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block font-bold text-on-surface mb-2">Category *</label>
+            <select
+              name="category"
+              value={formData.category}
+              onChange={handleChange}
+              className="w-full px-4 py-2 border border-outline rounded-lg focus:ring-2 focus:ring-primary"
+            >
+              <option value="valentines">Valentine's Day</option>
+              <option value="weddings">Weddings</option>
+              <option value="birthdays">Birthdays</option>
+              <option value="anniversaries">Anniversaries</option>
+              <option value="memorials">Memorials</option>
+              <option value="custom">Custom/Other</option>
+            </select>
+          </div>
 
-              <div>
-                <label className="block font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant mb-2">
-                  Chichewa Name
-                </label>
-                <input
-                  type="text"
-                  value={formData.nameChichewa}
-                  onChange={(e) => setFormData({ ...formData, nameChichewa: e.target.value })}
-                  placeholder="e.g., Maluwa a Kuwala"
-                  className="w-full bg-surface border border-outline-variant rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary transition-all font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px]"
-                />
-              </div>
+          <div>
+            <label className="block font-bold text-on-surface mb-2">Price (MK) *</label>
+            <input
+              type="decimal"
+              name="price"
+              value={formData.price}
+              onChange={handleChange}
+              placeholder="0"
+              min="0"
+              step="100"
+              className="w-full px-4 py-2 border border-outline rounded-lg focus:ring-2 focus:ring-primary"
+              required
+            />
+          </div>
+        </div>
 
-              <div>
-                <label className="block font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant mb-2">
-                  Category *
-                </label>
-                <select
-                  required
-                  value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  className="w-full bg-surface border border-outline-variant rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary transition-all font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px]"
-                >
-                  <option>Bouquets</option>
-                  <option>Roses</option>
-                  <option>Lilies</option>
-                  <option>Proteas</option>
-                  <option>Daisies</option>
-                  <option>Single Stems</option>
-                  <option>Arrangements</option>
-                  <option>Potted Plants</option>
-                </select>
-              </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block font-bold text-on-surface mb-2">Stock Count *</label>
+            <input
+              type="number"
+              name="countInStock"
+              value={formData.countInStock}
+              onChange={handleChange}
+              placeholder="0"
+              min="0"
+              className="w-full px-4 py-2 border border-outline rounded-lg focus:ring-2 focus:ring-primary"
+              required
+            />
+          </div>
 
-              <div>
-                <label className="block font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant mb-2">
-                  Price (MK) *
-                </label>
-                <input
-                  type="number"
-                  required
-                  value={formData.price}
-                  onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                  placeholder="25000"
-                  className="w-full bg-surface border border-outline-variant rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary transition-all font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px]"
-                />
-              </div>
+          <div>
+            <label className="block font-bold text-on-surface mb-2">Min Order Quantity</label>
+            <input
+              type="number"
+              name="minOrderQuantity"
+              value={formData.minOrderQuantity}
+              onChange={handleChange}
+              min="1"
+              className="w-full px-4 py-2 border border-outline rounded-lg focus:ring-2 focus:ring-primary"
+            />
+          </div>
+        </div>
 
-              <div>
-                <label className="block font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant mb-2">
-                  Stock Quantity *
-                </label>
-                <input
-                  type="number"
-                  required
-                  value={formData.stock}
-                  onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
-                  placeholder="50"
-                  className="w-full bg-surface border border-outline-variant rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary transition-all font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px]"
-                />
-              </div>
-            </div>
+        <div>
+          <label className="block font-bold text-on-surface mb-2">Max Order Quantity</label>
+          <input
+            type="number"
+            name="maxOrderQuantity"
+            value={formData.maxOrderQuantity}
+            onChange={handleChange}
+            placeholder="Leave empty for unlimited"
+            className="w-full px-4 py-2 border border-outline rounded-lg focus:ring-2 focus:ring-primary"
+          />
+        </div>
 
-            <div className="mt-6">
-              <label className="block font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant mb-2">
-                Description
-              </label>
-              <textarea
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                rows={4}
-                placeholder="Describe your flower arrangement, including special features, care instructions, or cultural significance..."
-                className="w-full bg-surface border border-outline-variant rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary transition-all resize-none font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px]"
-              />
-            </div>
-          </section>
-
-          {/* Occasion Tags Section */}
-          <section className="bg-surface-container-low rounded-2xl p-6 shadow-sm border border-outline-variant/30">
-            <h2 className="font-[family-name:var(--font-source-serif)] text-[24px] leading-[32px] font-semibold text-on-surface mb-4 flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary">celebration</span>
-              Occasion Tags
-            </h2>
-            <p className="font-[family-name:var(--font-be-vietnam)] text-[14px] leading-[20px] text-on-surface-variant mb-6">
-              Select all occasions that fit this flower arrangement
-            </p>
-
-            <div className="flex flex-wrap gap-3">
-              {[
-                "Weddings",
-                "Funerals",
-                "Birthdays",
-                "Anniversaries",
-                "Congratulations",
-                "Get Well Soon",
-                "Thank You",
-                "Just Because",
-              ].map((occasion) => (
-                <button
-                  key={occasion}
-                  type="button"
-                  onClick={() => handleOccasionToggle(occasion)}
-                  className={`px-4 py-2 rounded-full font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold transition-all ${
-                    formData.occasion.includes(occasion)
-                      ? "bg-secondary-container text-on-secondary-container border-2 border-secondary"
-                      : "bg-surface-container text-on-surface-variant border-2 border-outline-variant hover:border-secondary"
-                  }`}
-                >
-                  {occasion}
-                </button>
-              ))}
-            </div>
-          </section>
-
-          {/* Image Upload Section */}
-          <section className="bg-surface-container-low rounded-2xl p-6 shadow-sm border border-outline-variant/30">
-            <h2 className="font-[family-name:var(--font-source-serif)] text-[24px] leading-[32px] font-semibold text-on-surface mb-4 flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary">image</span>
-              Product Image
-            </h2>
-            <p className="font-[family-name:var(--font-be-vietnam)] text-[14px] leading-[20px] text-on-surface-variant mb-6">
-              Upload a high-quality image that showcases your flower arrangement
-            </p>
-
-            <div className="relative border-2 border-dashed border-outline-variant rounded-2xl p-8 flex flex-col items-center justify-center gap-3 hover:border-primary transition-colors cursor-pointer bg-surface group">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageChange}
-                className="absolute inset-0 opacity-0 cursor-pointer"
-              />
-              {imagePreview ? (
-                <div className="relative w-full max-w-md aspect-square rounded-xl overflow-hidden">
-                  <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <span className="text-white font-bold">Change Image</span>
-                  </div>
+        <div>
+          <label className="block font-bold text-on-surface mb-2">Product Image *</label>
+          <div className="border-2 border-dashed border-primary rounded-lg p-6 text-center cursor-pointer hover:bg-primary/5 transition-colors">
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleFileChange}
+              className="hidden"
+              id="image-upload"
+              disabled={uploading}
+              required={!uploadedImageUrl}
+            />
+            <label htmlFor="image-upload" className="cursor-pointer block">
+              {uploading ? (
+                <div className="space-y-2">
+                  <span className="material-symbols-outlined text-[48px] text-primary mx-auto block animate-spin">
+                    cloud_upload
+                  </span>
+                  <p className="text-on-surface font-semibold">Uploading...</p>
+                </div>
+              ) : imagePreview ? (
+                <div className="space-y-2">
+                  <span className="material-symbols-outlined text-[48px] text-primary mx-auto block">cloud_upload</span>
+                  <p className="text-on-surface font-semibold">Click to change image</p>
                 </div>
               ) : (
-                <>
-                  <span className="material-symbols-outlined text-primary text-5xl">cloud_upload</span>
-                  <p className="font-[family-name:var(--font-be-vietnam)] text-[14px] leading-[20px] font-bold text-on-surface">
-                    Click to upload or drag & drop
-                  </p>
-                  <p className="text-[12px] text-on-surface-variant">JPG, PNG up to 5MB</p>
-                </>
+                <div className="space-y-2">
+                  <span className="material-symbols-outlined text-[48px] text-primary mx-auto block">cloud_upload</span>
+                  <p className="text-on-surface font-semibold">Click to upload or drag and drop</p>
+                  <p className="text-on-surface-variant text-sm">PNG, JPG, GIF up to 5MB</p>
+                </div>
               )}
-            </div>
-          </section>
+            </label>
+          </div>
 
-          {/* Action Buttons */}
-          <div className="flex flex-col md:flex-row gap-4 pt-6">
-            <Link href="/seller/inventory" className="flex-1">
+          {imagePreview && (
+            <div className="mt-4 relative w-full h-48 bg-surface-container rounded-lg overflow-hidden">
+              <img
+                src={imagePreview}
+                alt="Preview"
+                className="w-full h-full object-cover"
+              />
+              {uploadedImageUrl && (
+                <div className="absolute top-2 left-2 bg-success text-white px-2 py-1 rounded text-sm flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                  Uploaded
+                </div>
+              )}
               <button
                 type="button"
-                className="w-full border-2 border-outline-variant text-on-surface-variant py-4 rounded-xl font-bold text-lg hover:bg-surface-container transition-all"
+                onClick={() => {
+                  setImagePreview("");
+                  setUploadedImageUrl("");
+                }}
+                className="absolute top-2 right-2 bg-error text-white p-2 rounded-full hover:opacity-90 transition-opacity"
               >
-                Cancel
+                <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
-            </Link>
-            <button
-              type="submit"
-              className="flex-1 bg-primary text-on-primary py-4 rounded-xl font-bold text-lg hover:opacity-90 transition-all shadow-md flex items-center justify-center gap-2"
-            >
-              <span className="material-symbols-outlined">add_circle</span>
-              Add to Inventory
-            </button>
-          </div>
-        </form>
-      </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-4">
+          <button
+            type="submit"
+            disabled={loading}
+            className="flex-1 bg-primary text-on-primary py-3 rounded-lg font-bold hover:opacity-90 transition-all disabled:opacity-50"
+          >
+            {loading ? "Adding..." : "Add Product"}
+          </button>
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="flex-1 bg-surface-container text-on-surface py-3 rounded-lg font-bold hover:opacity-90 transition-all"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

@@ -2,21 +2,117 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { authService } from "@/lib/services/authService";
+import { notificationService } from "@/lib/services/notificationService";
 
-export default function SignInPage() {
+function SignInContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectUrl = searchParams.get("redirect") || "/";
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [formData, setFormData] = useState({
-    identifier: "",
+    email: "",
     password: "",
   });
-
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [language, setLanguage] = useState<"en" | "ny">("en");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Redirect if already logged in
+  useEffect(() => {
+    const currentUser = authService.getUser();
+    if (currentUser) {
+      if (currentUser.isVendor) {
+        router.replace("/seller");
+      } else {
+        const destination = redirectUrl !== "/" ? redirectUrl : "/buyer/orders";
+        router.replace(destination);
+      }
+    }
+  }, [router, redirectUrl]);
+
+  // Seller detection based on email domain
+  const SELLER_EMAIL_DOMAINS = ["seller@malawiblooms.mw", "admin@malawiblooms.mw", "vendor@malawiblooms.mw"];
+  
+  const isSellerEmail = (email: string) => {
+    return SELLER_EMAIL_DOMAINS.some(domain => email.toLowerCase().includes(domain)) ||
+           email.toLowerCase().endsWith("@malawiblooms.seller");
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Sign in data:", formData);
-    alert("Successfully signed in!");
+    setError(null);
+    setLoading(true);
+
+    // Clear any existing active session first to avoid state pollution
+    authService.logout();
+
+    try {
+      const response = await authService.login({
+        email: formData.email,
+        password: formData.password,
+      });
+
+      // Check if seller email
+      if (isSellerEmail(formData.email)) {
+        if (response.user.isVendor) {
+          notificationService.success("Welcome back, seller!");
+          router.push("/seller");
+        } else {
+          setError("This email is registered as a buyer. Sellers must use a seller account.");
+          authService.logout();
+          return;
+        }
+      } else {
+        // Regular buyer
+        if (response.user.isVendor) {
+          setError("Seller accounts cannot access buyer checkout. Use /seller dashboard instead.");
+          authService.logout();
+          return;
+        }
+        notificationService.success("Welcome back!");
+        const destination = redirectUrl !== "/" ? redirectUrl : "/buyer/orders";
+        router.push(destination);
+      }
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.message || "Login failed. Please try again.";
+      setError(errorMessage);
+      console.error("Login error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = () => {
+    // Redirect to Google OAuth endpoint
+    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
+    const redirectUri = `${window.location.origin}/api/auth/google/callback`;
+    const scope = "openid profile email";
+    
+    if (!clientId) {
+      notificationService.error("Google Sign-In is not configured. Please use email/password.");
+      return;
+    }
+    
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}`;
+    window.location.href = authUrl;
+  };
+
+  const handleFacebookSignIn = () => {
+    // Redirect to Facebook OAuth endpoint
+    const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || "";
+    const redirectUri = `${window.location.origin}/api/auth/facebook/callback`;
+    
+    if (!appId) {
+      notificationService.error("Facebook Sign-In is not configured. Please use email/password.");
+      return;
+    }
+    
+    const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=email,public_profile`;
+    window.location.href = authUrl;
   };
 
   const content = {
@@ -31,7 +127,6 @@ export default function SignInPage() {
       signInButton: "Sign In",
       orDivider: "Or continue with",
       noAccount: "No account yet?",
-      createAccount: "Create one now",
       heroTitle: "Your Blooms Await",
       heroSubtitle: "Access your floral marketplace and continue your journey.",
     },
@@ -55,8 +150,63 @@ export default function SignInPage() {
   const t = content[language];
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-0 md:p-[16px]">
-      <main className="w-full h-full min-h-screen md:min-h-0 md:max-w-6xl md:h-[800px] bg-surface rounded-none md:rounded-xl shadow-lg flex flex-col md:flex-row overflow-hidden">
+    <div className="min-h-screen flex flex-col bg-surface">
+      {/* Mobile Header */}
+      <header className="fixed top-0 left-0 right-0 z-50 md:hidden flex justify-between items-center px-[20px] py-[12px] bg-surface shadow-sm border-b border-outline-variant">
+        <button
+          onClick={() => router.push(redirectUrl)}
+          className="text-primary hover:text-primary/80 transition-colors"
+          aria-label="Go back"
+        >
+          <span className="material-symbols-outlined text-[24px]">arrow_back</span>
+        </button>
+        <span className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold text-primary">
+          Malawi Bloom
+        </span>
+        <button
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          className="text-on-surface-variant hover:text-primary transition-colors"
+          aria-label="Toggle menu"
+        >
+          <span className="material-symbols-outlined text-[24px]">
+            {mobileMenuOpen ? "close" : "menu"}
+          </span>
+        </button>
+      </header>
+
+      {/* Mobile Navigation Menu */}
+      {mobileMenuOpen && (
+        <nav className="fixed top-[60px] left-0 right-0 z-40 md:hidden bg-surface border-b border-outline-variant shadow-md">
+          <div className="flex flex-col p-4 space-y-2">
+            <Link
+              href="/"
+              onClick={() => setMobileMenuOpen(false)}
+              className="px-4 py-2 text-primary font-semibold hover:bg-primary/10 rounded transition-colors"
+            >
+              Home
+            </Link>
+            <Link
+              href="/flowers"
+              onClick={() => setMobileMenuOpen(false)}
+              className="px-4 py-2 text-on-surface-variant font-semibold hover:bg-surface-container-high rounded transition-colors"
+            >
+              Shop
+            </Link>
+            <button
+              onClick={() => {
+                notificationService.info("Contact us at support@malawiblooms.mw or WhatsApp +265 888 000 000");
+                setMobileMenuOpen(false);
+              }}
+              className="w-full text-left px-4 py-2 text-on-surface-variant font-semibold hover:bg-surface-container-high rounded transition-colors"
+            >
+              Contact Us
+            </button>
+          </div>
+        </nav>
+      )}
+
+      <div className="flex-1 flex items-center justify-center p-0 md:p-[16px] pt-[120px] md:pt-0">
+        <main className="w-full h-full min-h-screen md:min-h-0 md:max-w-6xl md:h-[800px] bg-surface rounded-none md:rounded-xl shadow-lg flex flex-col md:flex-row overflow-hidden">
         {/* Image Column (Split Screen) */}
         <section className="hidden md:block md:w-1/2 relative overflow-hidden">
           <div className="absolute inset-0">
@@ -124,10 +274,19 @@ export default function SignInPage() {
 
           {/* Sign In Form */}
           <form onSubmit={handleSubmit} className="space-y-[16px] flex-grow">
-            {/* Email or Phone */}
+            {/* Error Message */}
+            {error && (
+              <div className="p-4 bg-error/10 border border-error rounded-lg">
+                <p className="font-[family-name:var(--font-be-vietnam)] text-[14px] leading-[20px] text-error">
+                  {error}
+                </p>
+              </div>
+            )}
+
+            {/* Email */}
             <div className="space-y-[4px]">
               <label
-                htmlFor="identifier"
+                htmlFor="email"
                 className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant block"
               >
                 {t.identifierLabel}
@@ -137,14 +296,15 @@ export default function SignInPage() {
                   person
                 </span>
                 <input
-                  type="text"
-                  id="identifier"
-                  name="identifier"
-                  value={formData.identifier}
-                  onChange={(e) => setFormData({ ...formData, identifier: e.target.value })}
+                  type="email"
+                  id="email"
+                  name="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   className="w-full pl-10 pr-4 py-3 bg-white border border-outline-variant rounded-lg font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px] focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all"
                   placeholder={t.identifierPlaceholder}
                   required
+                  disabled={loading}
                 />
               </div>
             </div>
@@ -170,6 +330,7 @@ export default function SignInPage() {
                   className="w-full pl-10 pr-12 py-3 bg-white border border-outline-variant rounded-lg font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px] focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all"
                   placeholder={t.passwordPlaceholder}
                   required
+                  disabled={loading}
                 />
                 <button
                   type="button"
@@ -197,9 +358,10 @@ export default function SignInPage() {
             <div className="pt-[16px] flex flex-col gap-[16px]">
               <button
                 type="submit"
-                className="w-full py-4 bg-primary text-white font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold rounded-full shadow-md hover:opacity-90 active:scale-95 transition-all"
+                disabled={loading}
+                className="w-full py-4 bg-primary text-white font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold rounded-full shadow-md hover:opacity-90 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {t.signInButton}
+                {loading ? "Signing in..." : t.signInButton}
               </button>
               <div className="flex items-center justify-center gap-2">
                 <span className="font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px] text-on-surface-variant">
@@ -209,7 +371,7 @@ export default function SignInPage() {
                   href="/sign-up"
                   className="font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px] text-primary font-bold hover:underline"
                 >
-                  {t.createAccount}
+                  {language === "en" ? "Sign Up" : "Pangani tsopano"}
                 </Link>
               </div>
             </div>
@@ -223,6 +385,7 @@ export default function SignInPage() {
             <div className="w-full flex flex-col sm:flex-row gap-3">
               <button
                 type="button"
+                onClick={handleGoogleSignIn}
                 className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-white border-2 border-outline-variant rounded-full font-[family-name:var(--font-be-vietnam)] text-[14px] leading-[20px] font-semibold text-on-surface hover:bg-surface-container-high transition-colors"
               >
                 <svg className="w-5 h-5" viewBox="0 0 24 24">
@@ -247,6 +410,7 @@ export default function SignInPage() {
               </button>
               <button
                 type="button"
+                onClick={handleFacebookSignIn}
                 className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-[#1877F2] border-2 border-[#1877F2] rounded-full font-[family-name:var(--font-be-vietnam)] text-[14px] leading-[20px] font-semibold text-white hover:opacity-90 transition-opacity"
               >
                 <svg className="w-5 h-5" fill="white" viewBox="0 0 24 24">
@@ -258,6 +422,15 @@ export default function SignInPage() {
           </div>
         </section>
       </main>
+      </div>
     </div>
+  );
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <SignInContent />
+    </Suspense>
   );
 }

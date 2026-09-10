@@ -1,370 +1,232 @@
 "use client";
 
-import Image from "next/image";
-import Link from "next/link";
-import { useParams } from "next/navigation";
 import { useState, useEffect } from "react";
+import { useRouter, useParams } from "next/navigation";
+import { inventoryService, InventoryItem } from "@/lib/services/inventoryService";
+import { notificationService } from "@/lib/services/notificationService";
 
-export default function EditFlowerPage() {
+export default function EditFlower() {
+  const router = useRouter();
   const params = useParams();
-  const itemId = params.id as string;
-
-  // Mock data - in production, fetch from API based on itemId
-  const [formData, setFormData] = useState({
-    name: "",
-    nameChichewa: "",
-    price: "",
-    category: "Bouquets",
-    stock: "",
-    description: "",
-    status: "available",
-    occasion: [] as string[],
-    imageUrl: "",
-  });
-
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const id = params?.id as string;
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [formData, setFormData] = useState<Partial<InventoryItem> | null>(null);
 
   useEffect(() => {
-    // Mock loading data based on ID
-    const mockData: { [key: string]: any } = {
-      "MB-FTR-001": {
-        name: "Flame Tree Roses",
-        nameChichewa: "Maluwa a Moto",
-        price: "12500",
-        category: "Roses",
-        stock: "42",
-        description: "Vibrant orange and red roses inspired by Malawi's iconic flame trees.",
-        status: "available",
-        occasion: ["Weddings", "Anniversaries", "Thank You"],
-        imageUrl:
-          "https://lh3.googleusercontent.com/aida-public/AB6AXuCYJYFbrC01s2MBz4Rqqhd1m8xQN-UNsMBf-f9luuz3pCUK88xZIBFu4m-j7Rn0LrMj76OtWPyWVOyLFf7hN99JT8zJ7ke0HwPYXiLlxb7MAHZ1DTV6-OuiewFclbvjANg6o6sJBeO7Ji0nmbPyJr6gVCGYNTc9Zc8-ENNyg8wkyfDd9mDnG4KeBuArdHlwyOlCxQgVi5rJQ5ApTkrWI_yeHJxPZ4a2dxd7zuyNjNiIARfFxZyNsjY_Id2OYI_BCs9DtfGLPOIdXo0",
-      },
-      "MB-PRO-024": {
-        name: "Zomba Protea",
-        nameChichewa: "Protea ya Zomba",
-        price: "18200",
-        category: "Proteas",
-        stock: "5",
-        description: "Architectural pink proteas from the highlands of Zomba plateau.",
-        status: "available",
-        occasion: ["Congratulations", "Just Because"],
-        imageUrl:
-          "https://lh3.googleusercontent.com/aida-public/AB6AXuCG_y6KUJpT4vHgHVUtYBb2p60s9oGVGLVFxKtCZ0BRuY54iyAUICUQMn59WidEct1K7p3Z2vPDaflNQIFNR6scDpkKX2Kbk9rl1uW9B1tGR1-C45oxgkbk3oQvFJwl5U_nazNIwHGb9SQvZ445_YRHoPPpohMVUHEuXBJdSdB-oTzKA02dI6pvSi42eldjrztoeAGPYshMLkq7rGgUeuldOMB2evMTnLzIxmRLtmXAeZn9D5-ucGvuWvCwXKtzoKOVUsVqXOd0m3Y",
-      },
+    let retryCount = 0;
+    const maxRetries = 2;
+
+    const loadItem = async () => {
+      try {
+        if (!id) {
+          setLoading(false);
+          return;
+        }
+        console.log(`Loading inventory item: ${id}`);
+        const item = await inventoryService.getItemById(id);
+        setFormData(item);
+      } catch (err: any) {
+        console.error("Failed to load product:", err);
+        
+        // Retry once on timeout
+        if ((err.code === 'ECONNABORTED' || err.message?.includes('timeout')) && retryCount < maxRetries) {
+          retryCount++;
+          console.log(`Retrying... Attempt ${retryCount}/${maxRetries}`);
+          setTimeout(loadItem, 1000); // Retry after 1 second
+          return;
+        }
+
+        if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+          notificationService.error("Server is taking too long to respond. Please check your connection and try again.");
+        } else if (err.response?.status === 404) {
+          notificationService.error("Product not found");
+        } else {
+          notificationService.error("Failed to load product. Please try again.");
+        }
+      } finally {
+        setLoading(false);
+      }
     };
 
-    const data = mockData[itemId];
-    if (data) {
-      setFormData(data);
-      setImagePreview(data.imageUrl);
-    }
-  }, [itemId]);
+    loadItem();
+  }, [id]);
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => prev ? { ...prev, [name]: value } : null);
   };
 
-  const handleOccasionToggle = (occasion: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      occasion: prev.occasion.includes(occasion)
-        ? prev.occasion.filter((o) => o !== occasion)
-        : [...prev.occasion, occasion],
-    }));
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Form updated:", formData);
-    // Handle form submission
+    if (!formData || !id) return;
+
+    setSaving(true);
+    try {
+      await inventoryService.updateItem(id, {
+        photoName: formData.photoName,
+        description: formData.description,
+        category: formData.category as any,
+        price: Number(formData.price),
+        countInStock: Number(formData.countInStock),
+        image: formData.image,
+        minOrderQuantity: formData.minOrderQuantity ? Number(formData.minOrderQuantity) : 1,
+        maxOrderQuantity: formData.maxOrderQuantity ? Number(formData.maxOrderQuantity) : undefined,
+        status: formData.status as any,
+      });
+
+      notificationService.success("Product updated successfully!");
+      router.push("/seller/inventory");
+    } catch (err: any) {
+      console.error("Error updating item:", err);
+      notificationService.error(err.response?.data?.message || "Failed to update product");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleDelete = () => {
-    console.log("Delete item:", itemId);
-    // Handle deletion
-  };
+  if (loading) {
+    return (
+      <div className="p-6 flex justify-center items-center min-h-[400px]">
+        <p className="text-on-surface-variant">Loading product...</p>
+      </div>
+    );
+  }
+
+  if (!formData) {
+    return (
+      <div className="p-6 flex justify-center items-center min-h-[400px]">
+        <p className="text-error">Product not found</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex-1 overflow-y-auto pb-24 md:pb-8">
-      <div className="max-w-4xl mx-auto px-[20px] py-[32px]">
-        {/* Header */}
-        <div className="mb-8">
-          <Link
-            href="/seller/inventory"
-            className="inline-flex items-center gap-2 text-on-surface-variant hover:text-primary transition-colors mb-4 font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold"
+    <div className="p-6 pb-20 md:pb-6">
+      <h1 className="font-[family-name:var(--font-source-serif)] text-[32px] leading-[40px] font-semibold text-on-surface mb-8">
+        Edit Product
+      </h1>
+
+      <form onSubmit={handleSubmit} className="max-w-2xl bg-surface rounded-lg shadow-md p-6 border border-outline-variant space-y-6">
+        <div>
+          <label className="block font-bold text-on-surface mb-2">Product Name</label>
+          <input
+            type="text"
+            name="photoName"
+            value={formData.photoName || ""}
+            onChange={handleChange}
+            className="w-full px-4 py-2 border border-outline rounded-lg focus:ring-2 focus:ring-primary"
+          />
+        </div>
+
+        <div>
+          <label className="block font-bold text-on-surface mb-2">Description</label>
+          <textarea
+            name="description"
+            value={formData.description || ""}
+            onChange={handleChange}
+            rows={4}
+            className="w-full px-4 py-2 border border-outline rounded-lg focus:ring-2 focus:ring-primary"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block font-bold text-on-surface mb-2">Category</label>
+            <select
+              name="category"
+              value={formData.category || "mixed"}
+              onChange={handleChange}
+              className="w-full px-4 py-2 border border-outline rounded-lg focus:ring-2 focus:ring-primary"
+            >
+              <option value="roses">Roses</option>
+              <option value="lilies">Lilies</option>
+              <option value="proteas">Proteas</option>
+              <option value="flame_tree">Flame Tree</option>
+              <option value="mixed">Mixed</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block font-bold text-on-surface mb-2">Price (MK)</label>
+            <input
+              type="number"
+              name="price"
+              value={formData.price || ""}
+              onChange={handleChange}
+              min="0"
+              step="100"
+              className="w-full px-4 py-2 border border-outline rounded-lg focus:ring-2 focus:ring-primary"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block font-bold text-on-surface mb-2">Stock Count</label>
+            <input
+              type="number"
+              name="countInStock"
+              value={formData.countInStock || ""}
+              onChange={handleChange}
+              min="0"
+              className="w-full px-4 py-2 border border-outline rounded-lg focus:ring-2 focus:ring-primary"
+            />
+          </div>
+
+          <div>
+            <label className="block font-bold text-on-surface mb-2">Status</label>
+            <select
+              name="status"
+              value={formData.status || "active"}
+              onChange={handleChange}
+              className="w-full px-4 py-2 border border-outline rounded-lg focus:ring-2 focus:ring-primary"
+            >
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="out_of_stock">Out of Stock</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="block font-bold text-on-surface mb-2">Image URL</label>
+          <input
+            type="url"
+            name="image"
+            value={formData.image || ""}
+            onChange={handleChange}
+            className="w-full px-4 py-2 border border-outline rounded-lg focus:ring-2 focus:ring-primary"
+          />
+          {formData.image && (
+            <div className="mt-2 relative w-full h-32 bg-surface-container rounded-lg overflow-hidden">
+              <img
+                src={formData.image}
+                alt="Preview"
+                className="w-full h-full object-cover"
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-4">
+          <button
+            type="submit"
+            disabled={saving}
+            className="flex-1 bg-primary text-on-primary py-3 rounded-lg font-bold hover:opacity-90 transition-all disabled:opacity-50"
           >
-            <span className="material-symbols-outlined text-[16px]">arrow_back</span>
-            Back to Inventory
-          </Link>
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="font-[family-name:var(--font-source-serif)] text-[32px] leading-[40px] md:text-[48px] md:leading-[56px] font-bold text-primary">
-                Edit Flower
-              </h1>
-              <p className="font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px] text-on-surface-variant mt-2">
-                ID: {itemId}
-              </p>
-            </div>
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="px-4 py-2 rounded-lg border-2 border-error text-error hover:bg-error-container transition-all font-bold flex items-center gap-2"
-            >
-              <span className="material-symbols-outlined">delete</span>
-              Delete
-            </button>
-          </div>
+            {saving ? "Saving..." : "Save Changes"}
+          </button>
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="flex-1 bg-surface-container text-on-surface py-3 rounded-lg font-bold hover:opacity-90 transition-all"
+          >
+            Cancel
+          </button>
         </div>
-
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-8">
-          {/* Basic Information Section */}
-          <section className="bg-surface-container-low rounded-2xl p-6 shadow-sm border border-outline-variant/30">
-            <h2 className="font-[family-name:var(--font-source-serif)] text-[24px] leading-[32px] font-semibold text-on-surface mb-6 flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary">info</span>
-              Basic Information
-            </h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant mb-2">
-                  Flower Name (English) *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="e.g., Luminous Lilies"
-                  className="w-full bg-surface border border-outline-variant rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary transition-all font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px]"
-                />
-              </div>
-
-              <div>
-                <label className="block font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant mb-2">
-                  Chichewa Name
-                </label>
-                <input
-                  type="text"
-                  value={formData.nameChichewa}
-                  onChange={(e) => setFormData({ ...formData, nameChichewa: e.target.value })}
-                  placeholder="e.g., Maluwa a Kuwala"
-                  className="w-full bg-surface border border-outline-variant rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary transition-all font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px]"
-                />
-              </div>
-
-              <div>
-                <label className="block font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant mb-2">
-                  Category *
-                </label>
-                <select
-                  required
-                  value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  className="w-full bg-surface border border-outline-variant rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary transition-all font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px]"
-                >
-                  <option>Bouquets</option>
-                  <option>Roses</option>
-                  <option>Lilies</option>
-                  <option>Proteas</option>
-                  <option>Daisies</option>
-                  <option>Single Stems</option>
-                  <option>Arrangements</option>
-                  <option>Potted Plants</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant mb-2">
-                  Price (MK) *
-                </label>
-                <input
-                  type="number"
-                  required
-                  value={formData.price}
-                  onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                  placeholder="25000"
-                  className="w-full bg-surface border border-outline-variant rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary transition-all font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px]"
-                />
-              </div>
-
-              <div>
-                <label className="block font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant mb-2">
-                  Stock Quantity *
-                </label>
-                <input
-                  type="number"
-                  required
-                  value={formData.stock}
-                  onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
-                  placeholder="50"
-                  className="w-full bg-surface border border-outline-variant rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary transition-all font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px]"
-                />
-              </div>
-
-              <div>
-                <label className="block font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant mb-2">
-                  Listing Status *
-                </label>
-                <select
-                  required
-                  value={formData.status}
-                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                  className="w-full bg-surface border border-outline-variant rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary transition-all font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px]"
-                >
-                  <option value="available">Available</option>
-                  <option value="hidden">Hidden</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="mt-6">
-              <label className="block font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant mb-2">
-                Description
-              </label>
-              <textarea
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                rows={4}
-                placeholder="Describe your flower arrangement, including special features, care instructions, or cultural significance..."
-                className="w-full bg-surface border border-outline-variant rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary transition-all resize-none font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px]"
-              />
-            </div>
-          </section>
-
-          {/* Occasion Tags Section */}
-          <section className="bg-surface-container-low rounded-2xl p-6 shadow-sm border border-outline-variant/30">
-            <h2 className="font-[family-name:var(--font-source-serif)] text-[24px] leading-[32px] font-semibold text-on-surface mb-4 flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary">celebration</span>
-              Occasion Tags
-            </h2>
-            <p className="font-[family-name:var(--font-be-vietnam)] text-[14px] leading-[20px] text-on-surface-variant mb-6">
-              Select all occasions that fit this flower arrangement
-            </p>
-
-            <div className="flex flex-wrap gap-3">
-              {[
-                "Weddings",
-                "Funerals",
-                "Birthdays",
-                "Anniversaries",
-                "Congratulations",
-                "Get Well Soon",
-                "Thank You",
-                "Just Because",
-              ].map((occasion) => (
-                <button
-                  key={occasion}
-                  type="button"
-                  onClick={() => handleOccasionToggle(occasion)}
-                  className={`px-4 py-2 rounded-full font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold transition-all ${
-                    formData.occasion.includes(occasion)
-                      ? "bg-secondary-container text-on-secondary-container border-2 border-secondary"
-                      : "bg-surface-container text-on-surface-variant border-2 border-outline-variant hover:border-secondary"
-                  }`}
-                >
-                  {occasion}
-                </button>
-              ))}
-            </div>
-          </section>
-
-          {/* Image Upload Section */}
-          <section className="bg-surface-container-low rounded-2xl p-6 shadow-sm border border-outline-variant/30">
-            <h2 className="font-[family-name:var(--font-source-serif)] text-[24px] leading-[32px] font-semibold text-on-surface mb-4 flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary">image</span>
-              Product Image
-            </h2>
-            <p className="font-[family-name:var(--font-be-vietnam)] text-[14px] leading-[20px] text-on-surface-variant mb-6">
-              Upload a new image to replace the current one
-            </p>
-
-            <div className="relative border-2 border-dashed border-outline-variant rounded-2xl p-8 flex flex-col items-center justify-center gap-3 hover:border-primary transition-colors cursor-pointer bg-surface group">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageChange}
-                className="absolute inset-0 opacity-0 cursor-pointer"
-              />
-              {imagePreview ? (
-                <div className="relative w-full max-w-md aspect-square rounded-xl overflow-hidden">
-                  <Image src={imagePreview} alt="Preview" fill className="object-cover" sizes="400px" />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <span className="text-white font-bold">Change Image</span>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <span className="material-symbols-outlined text-primary text-5xl">cloud_upload</span>
-                  <p className="font-[family-name:var(--font-be-vietnam)] text-[14px] leading-[20px] font-bold text-on-surface">
-                    Click to upload or drag & drop
-                  </p>
-                  <p className="text-[12px] text-on-surface-variant">JPG, PNG up to 5MB</p>
-                </>
-              )}
-            </div>
-          </section>
-
-          {/* Action Buttons */}
-          <div className="flex flex-col md:flex-row gap-4 pt-6">
-            <Link href="/seller/inventory" className="flex-1">
-              <button
-                type="button"
-                className="w-full border-2 border-outline-variant text-on-surface-variant py-4 rounded-xl font-bold text-lg hover:bg-surface-container transition-all"
-              >
-                Cancel
-              </button>
-            </Link>
-            <button
-              type="submit"
-              className="flex-1 bg-primary text-on-primary py-4 rounded-xl font-bold text-lg hover:opacity-90 transition-all shadow-md flex items-center justify-center gap-2"
-            >
-              <span className="material-symbols-outlined">save</span>
-              Save Changes
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-surface rounded-2xl max-w-md w-full shadow-2xl">
-            <div className="p-6">
-              <div className="w-16 h-16 bg-error-container rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="material-symbols-outlined text-error text-[32px]">warning</span>
-              </div>
-              <h2 className="font-[family-name:var(--font-source-serif)] text-[24px] leading-[32px] font-semibold text-on-surface text-center mb-2">
-                Delete Flower?
-              </h2>
-              <p className="font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px] text-on-surface-variant text-center mb-6">
-                Are you sure you want to delete &quot;{formData.name}&quot;? This action cannot be undone.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowDeleteConfirm(false)}
-                  className="flex-1 border-2 border-outline-variant text-on-surface-variant py-3 rounded-xl font-bold hover:bg-surface-container transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleDelete}
-                  className="flex-1 bg-error text-on-error py-3 rounded-xl font-bold hover:opacity-90 transition-all"
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      </form>
     </div>
   );
 }

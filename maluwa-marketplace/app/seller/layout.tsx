@@ -1,12 +1,78 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { ReactNode } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { ReactNode, useEffect, useState } from "react";
+import { authService } from "@/lib/services/authService";
+import { notificationService } from "@/lib/services/notificationService";
 
 export default function SellerLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [checked, setChecked] = useState(false);
+  const [sessionWarning, setSessionWarning] = useState(false);
 
+  useEffect(() => {
+    const user = authService.getUser();
+    if (!user) {
+      router.replace(`/sign-in?redirect=${pathname}`);
+      return;
+    }
+    if (!user.isVendor) {
+      router.replace("/");
+      return;
+    }
+
+    // Check for session expiry on initial load
+    if (authService.hasSessionExpired()) {
+      authService.logout();
+      notificationService.error("Your session has expired. Please log in again.");
+      router.replace("/sign-in");
+      return;
+    }
+
+    setChecked(true);
+  }, [pathname, router]);
+
+  // Session timeout check - monitor user activity
+  useEffect(() => {
+    if (!checked) return;
+
+    const checkSession = setInterval(() => {
+      if (authService.hasSessionExpired()) {
+        authService.logout();
+        notificationService.error("Your session has expired for security. Please log in again.");
+        router.replace("/sign-in");
+        clearInterval(checkSession);
+      }
+    }, 60000); // Check every minute
+
+    return () => clearInterval(checkSession);
+  }, [checked, router]);
+
+  // Update activity on user interaction
+  useEffect(() => {
+    if (!checked) return;
+
+    const updateActivity = () => {
+      authService.updateLastActivity();
+    };
+
+    // Track user activity
+    document.addEventListener("mousedown", updateActivity);
+    document.addEventListener("keydown", updateActivity);
+    document.addEventListener("touchstart", updateActivity);
+
+    return () => {
+      document.removeEventListener("mousedown", updateActivity);
+      document.removeEventListener("keydown", updateActivity);
+      document.removeEventListener("touchstart", updateActivity);
+    };
+  }, [checked]);
+
+  if (!checked) return null;
+
+ 
   const navItems = [
     { href: "/seller", label: "Dashboard", icon: "dashboard", exact: true },
     { href: "/seller/inventory", label: "Inventory", icon: "inventory_2", exact: false },
@@ -53,7 +119,7 @@ export default function SellerLayout({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-outline-variant">
-          <Link href="/seller/add-new-flower">
+          <Link href="/seller/inventory/new">
             <button className="w-full bg-primary text-on-primary py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-all shadow-md">
               <span className="material-symbols-outlined">add</span>
               Add New Flower
@@ -100,7 +166,7 @@ export default function SellerLayout({ children }: { children: ReactNode }) {
             );
           })}
           <Link
-            href="/seller/add-new-flower"
+            href="/seller/inventory/new"
             className="flex flex-col items-center justify-center py-2 px-3 text-secondary"
           >
             <span className="material-symbols-outlined text-[20px]">add_circle</span>

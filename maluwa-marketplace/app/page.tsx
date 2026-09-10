@@ -1,41 +1,105 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCart } from "@/lib/context/CartContext";
+import { notificationService } from "@/lib/services/notificationService";
+import { inventoryService, InventoryItem } from "@/lib/services/inventoryService";
+import { useState, Suspense, useEffect } from "react";
 
-export default function Home() {
+function HomeContent() {
+  const { addItem, getItemCount, isLoggedIn } = useCart();
+  const router = useRouter();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [trendingFlowers, setTrendingFlowers] = useState<InventoryItem[]>([]);
+  const [loadingFlowers, setLoadingFlowers] = useState(true);
+  const cartCount = getItemCount();
+
+  // Load trending flowers on mount
+  useEffect(() => {
+    const loadTrendingFlowers = async () => {
+      try {
+        setLoadingFlowers(true);
+        // Fetch all flowers from seller's inventory
+        const flowers = await inventoryService.getAllItems();
+        // Get up to 4 flowers for trending section
+        setTrendingFlowers(flowers.slice(0, 4));
+      } catch (err) {
+        console.error("Failed to load trending flowers:", err);
+        setTrendingFlowers([]);
+      } finally {
+        setLoadingFlowers(false);
+      }
+    };
+
+    loadTrendingFlowers();
+  }, []);
+
+  const handleAddToCart = (flower: InventoryItem) => {
+    if (!isLoggedIn) {
+      notificationService.info("Please sign in to add items to your cart");
+      router.push(`/sign-in?redirect=${encodeURIComponent("/")}`);
+      return;
+    }
+    try {
+      addItem(flower, 1);
+      notificationService.success("Added to cart!");
+    } catch (err) {
+      console.error("Failed to add to cart:", err);
+      notificationService.error("Couldn't add item to cart. Please try again.");
+    }
+  };
+
   return (
     <>
       {/* TopAppBar */}
-      <header className="fixed top-0 w-full z-50 flex justify-between items-center px-[20px] py-[4px] max-w-7xl mx-auto bg-surface shadow-sm">
+      <header className="fixed top-0 left-0 right-0 z-50 flex justify-between items-center px-[20px] py-[4px] bg-surface shadow-sm">
         <div className="font-[family-name:var(--font-source-serif)] text-[28px] leading-[36px] font-semibold text-primary md:text-[32px] md:leading-[40px]">
           Malawi Bloom
         </div>
         <nav className="hidden md:flex gap-[16px] items-center">
           <Link
-            className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-primary border-b-2 border-primary hover:text-primary-container transition-colors"
-            href="#"
+            className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-secondary border-b-2 border-secondary hover:text-primary-container transition-colors"
+            href="/"
           >
             Home
           </Link>
           <Link
-            className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant hover:text-primary-container transition-colors"
-            href="#"
+            className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant hover:text-secondary transition-colors"
+            href="/flowers"
           >
-            Categories
+            Shop
           </Link>
           <Link
-            className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant hover:text-primary-container transition-colors"
-            href="#"
+            className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant hover:text-secondary transition-colors"
+            href="/contact"
           >
-            Orders
+            Contact
+          </Link>
+          <Link
+            className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant hover:text-secondary transition-colors"
+            href="/about"
+          >
+            About Us
           </Link>
         </nav>
         <div className="flex items-center gap-[16px]">
-          <button className="material-symbols-outlined text-on-surface-variant hover:text-primary transition-all active:scale-95">
-            shopping_cart
-          </button>
-          <button className="material-symbols-outlined text-on-surface-variant hover:text-primary transition-all active:scale-95">
-            account_circle
-          </button>
+          <Link href="/cart" className="relative group">
+            <button className="material-symbols-outlined text-on-surface-variant hover:text-primary transition-all active:scale-95">
+              shopping_cart
+            </button>
+            {cartCount > 0 && (
+              <span className="absolute -top-2 -right-2 bg-error text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                {cartCount}
+              </span>
+            )}
+          </Link>
+          <Link href="/sign-in">
+            <button className="material-symbols-outlined text-on-surface-variant hover:text-primary transition-all active:scale-95">
+              account_circle
+            </button>
+          </Link>
         </div>
       </header>
 
@@ -69,12 +133,28 @@ export default function Home() {
                   </span>
                   <input
                     className="w-full pl-12 pr-4 py-4 rounded-xl border-none shadow-lg bg-surface text-on-surface focus:ring-2 focus:ring-primary"
-                    placeholder="Search for roses, lilies, or 'chikondi'..."
+                    placeholder="Search for roses, lilies, etc"
                     type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && searchQuery.trim()) {
+                        router.push(`/flowers?search=${encodeURIComponent(searchQuery)}`);
+                      }
+                    }}
                   />
                 </div>
-                <button className="bg-primary text-on-primary px-8 py-4 rounded-xl font-bold shadow-lg hover:bg-primary-container transition-all active:scale-95">
-                  Gula
+                <button
+                  onClick={() => {
+                    if (searchQuery.trim()) {
+                      router.push(`/flowers?search=${encodeURIComponent(searchQuery)}`);
+                    } else {
+                      notificationService.warning("Please enter a search term");
+                    }
+                  }}
+                  className="bg-primary text-on-primary px-8 py-4 rounded-xl font-bold shadow-lg hover:bg-primary-container transition-all active:scale-95"
+                >
+                  Search
                 </button>
               </div>
             </div>
@@ -93,73 +173,73 @@ export default function Home() {
               </p>
             </div>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-[16px]">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-[16px]">
             {/* Valentines */}
             <Link
               className="group bg-surface-container hover:bg-primary-container hover:text-on-primary-container transition-all p-[32px] rounded-2xl flex flex-col items-center text-center shadow-sm"
-              href="#"
+              href="/flowers?category=valentines"
             >
               <div className="bg-primary-container text-on-primary-container w-16 h-16 rounded-full flex items-center justify-center mb-[16px] group-hover:bg-surface group-hover:text-primary transition-colors">
                 <span className="material-symbols-outlined text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>
                   favorite
                 </span>
               </div>
-              <span className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold">
+              <span className="font-[family-name:var(--font-source-serif)] text-[16px] leading-[24px] font-semibold">
                 Valentine&apos;s
               </span>
             </Link>
             {/* Weddings */}
             <Link
               className="group bg-surface-container hover:bg-secondary-container hover:text-on-secondary-container transition-all p-[32px] rounded-2xl flex flex-col items-center text-center shadow-sm"
-              href="#"
+              href="/flowers?category=weddings"
             >
               <div className="bg-secondary-container text-on-secondary-container w-16 h-16 rounded-full flex items-center justify-center mb-[16px] group-hover:bg-surface group-hover:text-secondary transition-colors">
                 <span className="material-symbols-outlined text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>
                   celebration
                 </span>
               </div>
-              <span className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold">
+              <span className="font-[family-name:var(--font-source-serif)] text-[16px] leading-[24px] font-semibold">
                 Weddings
               </span>
             </Link>
-            {/* Funerals */}
+            {/* Memorials */}
             <Link
               className="group bg-surface-container hover:bg-surface-dim transition-all p-[32px] rounded-2xl flex flex-col items-center text-center shadow-sm"
-              href="#"
+              href="/flowers?category=memorials"
             >
               <div className="bg-on-surface-variant/10 text-on-surface-variant w-16 h-16 rounded-full flex items-center justify-center mb-[16px] group-hover:bg-surface transition-colors">
                 <span className="material-symbols-outlined text-3xl">filter_vintage</span>
               </div>
-              <span className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold">
+              <span className="font-[family-name:var(--font-source-serif)] text-[16px] leading-[24px] font-semibold">
                 Memorials
               </span>
             </Link>
             {/* Birthdays */}
             <Link
               className="group bg-surface-container hover:bg-tertiary-container hover:text-on-tertiary-container transition-all p-[32px] rounded-2xl flex flex-col items-center text-center shadow-sm"
-              href="#"
+              href="/flowers?category=birthdays"
             >
               <div className="bg-tertiary-container text-on-tertiary-container w-16 h-16 rounded-full flex items-center justify-center mb-[16px] group-hover:bg-surface group-hover:text-tertiary transition-colors">
                 <span className="material-symbols-outlined text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>
                   cake
                 </span>
               </div>
-              <span className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold">
+              <span className="font-[family-name:var(--font-source-serif)] text-[16px] leading-[24px] font-semibold">
                 Birthdays
               </span>
             </Link>
-            {/* Anniversary */}
+            {/* Anniversaries */}
             <Link
               className="group bg-surface-container hover:bg-primary-container hover:text-on-primary-container transition-all p-[32px] rounded-2xl flex flex-col items-center text-center shadow-sm"
-              href="#"
+              href="/flowers?category=anniversaries"
             >
               <div className="bg-primary-container text-on-primary-container w-16 h-16 rounded-full flex items-center justify-center mb-[16px] group-hover:bg-surface group-hover:text-primary transition-colors">
                 <span className="material-symbols-outlined text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>
                   card_giftcard
                 </span>
               </div>
-              <span className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold">
-                Anniversary
+              <span className="font-[family-name:var(--font-source-serif)] text-[16px] leading-[24px] font-semibold">
+                Anniversaries
               </span>
             </Link>
           </div>
@@ -172,219 +252,101 @@ export default function Home() {
               <h2 className="font-[family-name:var(--font-source-serif)] text-[32px] leading-[40px] font-semibold text-on-surface">
                 Trending Now
               </h2>
-              <Link className="text-primary font-bold hover:underline" href="#">
+              <Link className="text-primary font-bold hover:underline" href="/flowers">
                 View All Bloom
               </Link>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 md:grid-rows-2 gap-[16px] h-auto md:h-[600px]">
-              {/* Large Featured Card */}
-              <div className="md:col-span-2 md:row-span-2 relative group overflow-hidden rounded-2xl shadow-lg bg-surface">
-                <Image
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuARNLazUCyZM3fYjdHoIMpdpp49FNd75Oa0X9rIDB5A4RkYqcaeTza8IN0yQr-v9kWsw9scgxJPYvmoofGd8jC1hsid4-lTKX3-CBEvS_8OiWqm_PYGAeo2YUVTAjXBebGCJlv4S-sVkDzwbLKEONKPLUPM11oTOQJx37OiZ58lpb-1MR8Ofnqd65TMd7BvDNSjbBRnnqm5lf_Iia54AuRRQ9Qak1l7uKC8Vg8cLJCaL5vDqAV7xhvKXjjscAdv9uGW5EsjH89Yn0M"
-                  alt="Malawi-grown bouquet featuring Flame Tree blossoms and Proteas"
-                  fill
-                  sizes="(max-width: 768px) 100vw, 50vw"
-                />
-                <div className="absolute bottom-0 left-0 right-0 p-[32px] bg-gradient-to-t from-black/80 to-transparent text-white">
-                  <div className="flex justify-between items-end">
-                    <div>
-                      <span className="inline-block px-3 py-1 bg-tertiary text-on-tertiary rounded-full text-[10px] uppercase font-bold tracking-widest mb-2">
-                        Flame Tree Series
-                      </span>
-                      <h3 className="font-[family-name:var(--font-source-serif)] text-[32px] leading-[40px] font-semibold text-white">
-                        Zomba Mountain Radiance
-                      </h3>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-2xl font-[family-name:var(--font-source-serif)] font-bold">MK 45,000</p>
-                      <button className="mt-2 px-6 py-2 bg-primary text-on-primary rounded-full font-bold text-sm">
-                        Gula
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              {/* Side Card 1 */}
-              <div className="relative group overflow-hidden rounded-2xl shadow-lg bg-surface flex flex-col">
-                <div className="h-48 overflow-hidden relative">
-                  <Image
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                    src="https://lh3.googleusercontent.com/aida-public/AB6AXuCD2grYnIjLohYrGUa90TeJ0D_8g4naphYYX6Zqn9-Jg2j7662-umATLI_1dLdJ8EBVqxzi4pSLtAIIOgLZJJXPkKD0pWygSOYxgmVkYn7lEbxIuQCiaBDi0tgLokPY6JG-KQYYmbb6_VMaH89h6xk3BSY7K_O0U66y9xdA6OCdxs8Jk94-mvx_dRif3tZ8Vu9KHWV7J9r7l5C6CLHaRu2UGY-CYd70TSCGspWEM-ABNd4YDKFYjAVWjwAqZNtqF9iEvaKfWmUXza4"
-                    alt="Delicate white lilies"
-                    fill
-                    sizes="(max-width: 768px) 100vw, 25vw"
-                  />
-                </div>
-                <div className="p-4 flex flex-col justify-between flex-grow">
-                  <div>
-                    <h3 className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold text-on-surface">
-                      Chikondi Lilies
-                    </h3>
-                    <p className="text-on-surface-variant font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold">
-                      Pure Grace
-                    </p>
-                  </div>
-                  <div className="flex justify-between items-center mt-[16px]">
-                    <span className="text-primary font-bold">MK 22,500</span>
-                    <button className="material-symbols-outlined text-primary-container">add_shopping_cart</button>
-                  </div>
-                </div>
-              </div>
 
-              {/* Side Card 2 */}
-              <div className="relative group overflow-hidden rounded-2xl shadow-lg bg-surface flex flex-col">
-                <div className="h-48 overflow-hidden relative">
-                  <Image
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                    src="https://lh3.googleusercontent.com/aida-public/AB6AXuA3oEi_7i7S4KvCg7P1pcy_FyIuOlC3szGmw78MJ2IK2fDlBtPCqqvh25FQ9lYX1bLgiupfL6U68wfE4PcizPFXoc5BJEO2zFkQtnGb7FZPTdJIfpiLCabhTK7pORdGH59kLZr1heBMso57Xu-2gYDQv-OGYvt8naDHJhzawZfIyWs28g8WHoOy2m6XimKnInQuTlAv48tC4y2xfHY_skmnTW5ZJQ0o07SYyOrZFqZqVxiFp2G_FzzFcjsWYYTtfNW_NdKYkm2lZzY"
-                    alt="Purple bougainvillea arrangement"
-                    fill
-                    sizes="(max-width: 768px) 100vw, 25vw"
-                  />
-                </div>
-                <div className="p-4 flex flex-col justify-between flex-grow">
-                  <div>
-                    <h3 className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold text-on-surface">
-                      Sun-Kissed Petals
-                    </h3>
-                    <p className="text-on-surface-variant font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold">
-                      Bougainvillea Mix
-                    </p>
-                  </div>
-                  <div className="flex justify-between items-center mt-[16px]">
-                    <span className="text-primary font-bold">MK 18,000</span>
-                    <button className="material-symbols-outlined text-primary-container">add_shopping_cart</button>
-                  </div>
-                </div>
+            {loadingFlowers ? (
+              <div className="text-center py-12">
+                <p className="text-on-surface-variant">Loading flowers...</p>
               </div>
-              {/* Bottom Long Card */}
-              <div className="md:col-span-2 relative group overflow-hidden rounded-2xl shadow-lg bg-surface-container flex items-center">
-                <div className="w-1/3 h-full relative">
-                  <Image
-                    className="w-full h-full object-cover"
-                    src="https://lh3.googleusercontent.com/aida-public/AB6AXuCWs9XhW0TvAjZAXMywgpckX50O8qC73KgUFitlsE26F5ufmFueBJXuha2xfX5_zW-nYtC_Fp4nkJDIOg26HedAFkSk-fKJoq8oRaFhgJaizPenisP4iZvMw5fFzx2MwoRx5xfFn8MMG9xFXxw1reh9ike5L8k2XvuLh24c5a441cSh3KstkPKr5j0BlALwkAAvig3AuyY1vMzbfMNZWth_JN0uohuBKejBCRXPNR6hx7Nwgyz1xrRu750291N0BIU_8SxcVz8qJ6w"
-                    alt="Yellow wild blooms from Malawian plateau"
-                    fill
-                    sizes="(max-width: 768px) 100vw, 33vw"
-                  />
-                </div>
-                <div className="w-2/3 p-[16px]">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <span className="text-xs font-bold text-secondary uppercase tracking-wider">
-                        Same Day Delivery
-                      </span>
-                      <h3 className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold text-on-surface">
-                        The Plateau Sunset
-                      </h3>
-                      <p className="text-on-surface-variant text-sm mt-1">Lilongwe Direct Bloom</p>
+            ) : trendingFlowers.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-on-surface-variant">No flowers available yet. Check back soon!</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-4 md:grid-rows-2 gap-[16px] h-auto md:h-[600px]">
+                {/* Large Featured Card - First flower */}
+                {trendingFlowers[0] && (
+                  <div className="md:col-span-2 md:row-span-2 relative group overflow-hidden rounded-2xl shadow-lg bg-surface">
+                    <Image
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                      src={trendingFlowers[0].image || "https://via.placeholder.com/400"}
+                      alt={trendingFlowers[0].photoName}
+                      fill
+                      sizes="(max-width: 768px) 100vw, 50vw"
+                      unoptimized={true}
+                    />
+                    <div className="absolute bottom-0 left-0 right-0 p-[32px] bg-gradient-to-t from-black/80 to-transparent text-white">
+                      <div className="flex justify-between items-end">
+                        <div>
+                          <span className="inline-block px-3 py-1 bg-tertiary text-on-tertiary rounded-full text-[10px] uppercase font-bold tracking-widest mb-2">
+                            {trendingFlowers[0].category || "Featured"}
+                          </span>
+                          <h3 className="font-[family-name:var(--font-source-serif)] text-[32px] leading-[40px] font-semibold text-white">
+                            {trendingFlowers[0].photoName}
+                          </h3>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-2xl font-[family-name:var(--font-source-serif)] font-bold">K {trendingFlowers[0].price.toLocaleString()}</p>
+                          <button
+                            onClick={() => handleAddToCart(trendingFlowers[0])}
+                            className="material-symbols-outlined text-primary-container hover:text-primary transition-colors mt-2"
+                            title="Add to Cart"
+                          >
+                            add_shopping_cart
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                    <span className="font-[family-name:var(--font-source-serif)] text-primary text-xl font-bold">
-                      MK 30,000
-                    </span>
                   </div>
-                  <button className="mt-4 w-full py-2 border-2 border-secondary text-secondary rounded-lg font-bold hover:bg-secondary hover:text-on-secondary transition-colors">
-                    View Details
-                  </button>
-                </div>
+                )}
+
+                {/* Side Cards */}
+                {trendingFlowers.slice(1, 4).map((flower) => (
+                  <div key={flower._id} className="relative group overflow-hidden rounded-2xl shadow-lg bg-surface flex flex-col">
+                    <div className="h-48 overflow-hidden relative">
+                      <Image
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                        src={flower.image || "https://via.placeholder.com/300"}
+                        alt={flower.photoName}
+                        fill
+                        sizes="(max-width: 768px) 100vw, 25vw"
+                        unoptimized={true}
+                      />
+                    </div>
+                    <div className="p-4 flex flex-col justify-between flex-grow">
+                      <div>
+                        <h3 className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold text-on-surface">
+                          {flower.photoName}
+                        </h3>
+                        <p className="text-on-surface-variant font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold capitalize">
+                          {flower.category || "Flower"}
+                        </p>
+                      </div>
+                      <div className="flex justify-between items-center mt-[16px]">
+                        <span className="text-primary font-bold">K {flower.price.toLocaleString()}</span>
+                        <button
+                          onClick={() => handleAddToCart(flower)}
+                          className="material-symbols-outlined text-primary-container hover:text-primary transition-colors"
+                          title="Add to Cart"
+                        >
+                          add_shopping_cart
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
+            )}
           </div>
         </section>
 
-        {/* Verified Local Sellers */}
-        <section className="px-[20px] py-[32px] max-w-7xl mx-auto">
-          <div className="text-center mb-[32px]">
-            <h2 className="font-[family-name:var(--font-source-serif)] text-[32px] leading-[40px] font-semibold text-on-surface">
-              Verified Local Sellers
-            </h2>
-            <p className="font-[family-name:var(--font-be-vietnam)] text-on-surface-variant">
-              Empowering Malawian florists and growers.
-            </p>
-          </div>
-          <div className="flex flex-wrap justify-center gap-[16px]">
-            {/* Seller 1 */}
-            <div className="flex items-center gap-4 bg-surface p-4 rounded-xl shadow-sm border border-outline-variant w-full md:w-auto min-w-[280px]">
-              <div className="w-14 h-14 rounded-full bg-secondary-container overflow-hidden relative">
-                <Image
-                  className="w-full h-full object-cover"
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuAeEufok8BGQqf8fMlnGUXdZAuuZ5u9esGQYHr2swG4dM-31CO7I2bJRhOOKkWEGr14EefGjBq1MCZVGf3-JzZTOljCt2G5FiY1pjGiocpAWi8BKvdeGjj4aLKiScX_pL3BzZb7WsRj2Fsp0Mjb8SJvjAg-otnrV9dbsID8e_fbSI3xtEHSYBR_vXi9KrAwmQdL9IwZhntvzOl8zcb4v-TSQkEfy5xovGKLAjRcvYmriogzp15ITTBMNhcCzC6CgT62V94JH90PTW4"
-                  alt="Malawian female florist"
-                  fill
-                  sizes="56px"
-                />
-              </div>
-              <div>
-                <h4 className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold text-on-surface">
-                  Blantyre Bloom Co.
-                </h4>
-                <div className="flex items-center gap-1 text-secondary">
-                  <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>
-                    verified
-                  </span>
-                  <span className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold">
-                    Verified Expert
-                  </span>
-                </div>
-              </div>
-            </div>
-            {/* Seller 2 */}
-            <div className="flex items-center gap-4 bg-surface p-4 rounded-xl shadow-sm border border-outline-variant w-full md:w-auto min-w-[280px]">
-              <div className="w-14 h-14 rounded-full bg-primary-container overflow-hidden relative">
-                <Image
-                  className="w-full h-full object-cover"
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuCYGARvXRxqmCYIfcIewlq232ksbaW6j8yG2lkvPd3hTEo3J74Zlqqr4FJrh-37OYi_iIBATWPrYt_S-hZvUsbUrqi1n9W02Rn-ZMTuPQ-5lQwJ2J9rGvSXFhQRZFUOoDzKUbT-IokrMrMt2CdpfnX11IetiZc6YDxiEkHt8HTh_lXtP7BC7ESlTS7mCLZp24uHkYi8eQ6Pdy3_HZPwWnFQxcUhPCZ8nDmIgGOg5lldqrskXrXPskGq9spq5T0drjkNDZe6d04BulU"
-                  alt="Malawian flower grower"
-                  fill
-                  sizes="56px"
-                />
-              </div>
-              <div>
-                <h4 className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold text-on-surface">
-                  Flame Tree Nurseries
-                </h4>
-                <div className="flex items-center gap-1 text-secondary">
-                  <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>
-                    verified
-                  </span>
-                  <span className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold">
-                    Verified Grower
-                  </span>
-                </div>
-              </div>
-            </div>
-            {/* Seller 3 */}
-            <div className="flex items-center gap-4 bg-surface p-4 rounded-xl shadow-sm border border-outline-variant w-full md:w-auto min-w-[280px]">
-              <div className="w-14 h-14 rounded-full bg-tertiary-container overflow-hidden relative">
-                <Image
-                  className="w-full h-full object-cover"
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuAzZ94QkShHuFCD_c55MHai-I5uPJB1xtgtHCJvuCW2z_Zsw3QFMa2nuSU9SrOTnFEkcRQ5YUfNAGWmm-MA67GlcJsI-pNMdKzNOT-RaeUCKyjw01HLUo265gMGcN5JOywtSOoPcVd8su_nya0R69KblQcPU-IvF3aznn8eSjgh-iYaVpG4-odLkTkw4qDYLlla9uHWuTb2BSnoGub8p94SHmS-RF1ibrnZb121yhRvMv_XOmahJb9QwZ9TaEC_AVYSLv99vlVzZxg"
-                  alt="Young Malawian woman florist"
-                  fill
-                  sizes="56px"
-                />
-              </div>
-              <div>
-                <h4 className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold text-on-surface">
-                  Lilongwe Petals
-                </h4>
-                <div className="flex items-center gap-1 text-secondary">
-                  <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>
-                    verified
-                  </span>
-                  <span className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold">
-                    Verified Boutique
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
       </main>
 
       {/* Footer */}
-      <footer className="w-full py-[32px] px-[20px] grid grid-cols-1 md:grid-cols-3 gap-[16px] max-w-7xl mx-auto bg-surface-container-highest border-t border-outline-variant mt-[32px]">
+      <footer className="w-full py-[32px] px-[20px] grid grid-cols-1 md:grid-cols-3 gap-[16px]  mx-auto bg-surface-container-highest border-t border-outline-variant mt-[32px]">
         <div className="space-y-[16px]">
           <div className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold text-primary">
             Malawi Bloom
@@ -482,42 +444,59 @@ export default function Home() {
       {/* BottomNavBar (Mobile Only) */}
       <nav className="fixed bottom-0 w-full z-50 flex justify-around items-center px-4 py-2 pb-safe md:hidden bg-surface-container shadow-[0_-4px_20px_rgba(0,0,0,0.05)] rounded-t-xl">
         <Link
-          className="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1 transition-all active:scale-90 duration-150"
-          href="#"
+          className="flex flex-col items-center justify-center bg-secondary-container text-on-secondary-container rounded-full px-4 py-1 transition-all active:scale-90 duration-150"
+          href="/"
         >
           <span className="material-symbols-outlined">home</span>
           <span className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold">
-            Gula
+            Home
           </span>
         </Link>
         <Link
           className="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-all"
-          href="#"
+          href="/flowers"
         >
           <span className="material-symbols-outlined">local_florist</span>
           <span className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold">
-            Categories
+            Shop
           </span>
         </Link>
         <Link
           className="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-all"
-          href="#"
+          href="/contact"
+        >
+          <span className="material-symbols-outlined">mail</span>
+          <span className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold">
+            Contact
+          </span>
+        </Link>
+        <Link
+          className="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-all"
+          href="/about"
+        >
+          <span className="material-symbols-outlined">info</span>
+          <span className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold">
+            About
+          </span>
+        </Link>
+        <Link
+          className="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-all"
+          href="/cart"
         >
           <span className="material-symbols-outlined">shopping_basket</span>
           <span className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold">
             Cart
           </span>
         </Link>
-        <Link
-          className="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-all"
-          href="#"
-        >
-          <span className="material-symbols-outlined">receipt_long</span>
-          <span className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold">
-            Orders
-          </span>
-        </Link>
       </nav>
     </>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <HomeContent />
+    </Suspense>
   );
 }

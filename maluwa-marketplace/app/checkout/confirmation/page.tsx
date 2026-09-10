@@ -1,252 +1,267 @@
 "use client";
 
-import Image from "next/image";
+import { useSearchParams } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
+import { orderService, Order } from "@/lib/services/orderService";
+import { useCart } from "@/lib/context/CartContext";
 import Link from "next/link";
-import { useEffect, useState } from "react";
 
-export default function Confirmation() {
-  const [timeLeft, setTimeLeft] = useState(300); // 5 minutes
+function OrderConfirmationContent() {
+  const searchParams = useSearchParams();
+  const urlOrderId = searchParams.get("orderId");
+  const [orderId, setOrderId] = useState<string | null>(urlOrderId);
+  const [order, setOrder] = useState<Order | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { refreshCart } = useCart();
+
+  // On mount, check sessionStorage for orderId if not in URL.
+  // Also refresh the cart so the badge correctly shows 0 after checkout.
+  useEffect(() => {
+    // Sync cart with backend — clears any stale local state
+    refreshCart();
+
+    if (!urlOrderId) {
+      const storedOrderId = sessionStorage.getItem("orderId");
+      if (storedOrderId) {
+        setOrderId(storedOrderId);
+        // Clean up sessionStorage after reading
+        sessionStorage.removeItem("orderId");
+      } else {
+        setError("No order found");
+        setLoading(false);
+      }
+    }
+  }, [urlOrderId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
+    if (!orderId) {
+      return;
+    }
 
-    return () => clearInterval(interval);
-  }, []);
+    const fetchOrder = async () => {
+      try {
+        const orderData = await orderService.getOrderById(orderId);
+        setOrder(orderData);
+      } catch (err) {
+        setError("Failed to load order details");
+        console.error("Error fetching order:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const minutes = Math.floor(timeLeft / 60);
-  const seconds = timeLeft % 60;
-  const formattedTime = `0${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
-  const isExpired = timeLeft === 0;
+    fetchOrder();
+  }, [orderId]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen pt-20 pb-20 max-w-3xl mx-auto px-4 flex items-center justify-center">
+        <p className="text-on-surface-variant">Loading order details...</p>
+      </div>
+    );
+  }
+
+  if (error || !order) {
+    return (
+      <div className="min-h-screen pt-20 pb-20 max-w-3xl mx-auto px-4">
+        <div className="text-center py-20">
+          <span className="material-symbols-outlined text-[64px] text-error">error</span>
+          <h1 className="font-[family-name:var(--font-source-serif)] text-[28px] leading-[36px] font-semibold text-on-surface mt-4">
+            {error || "Order not found"}
+          </h1>
+          <Link
+            href="/flowers"
+            className="inline-block mt-8 px-8 py-3 bg-primary text-on-primary font-semibold rounded-full hover:opacity-90"
+          >
+            Continue Shopping
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <>
-      <style jsx>{`
-        @keyframes pulse-ring {
-          0% {
-            transform: scale(0.33);
-            opacity: 1;
-          }
-          80%,
-          100% {
-            opacity: 0;
-          }
-        }
-        @keyframes pulse-dot {
-          0% {
-            transform: scale(0.8);
-          }
-          50% {
-            transform: scale(1);
-          }
-          100% {
-            transform: scale(0.8);
-          }
-        }
-        .pulse-animation {
-          position: relative;
-          width: 80px;
-          height: 80px;
-        }
-        .pulse-animation::before {
-          content: "";
-          position: absolute;
-          display: block;
-          width: 300%;
-          height: 300%;
-          box-sizing: border-box;
-          margin-left: -100%;
-          margin-top: -100%;
-          border-radius: 45px;
-          background-color: #a0f399;
-          animation: pulse-ring 1.25s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
-        }
-        .pulse-animation::after {
-          content: "";
-          position: absolute;
-          left: 0;
-          top: 0;
-          display: block;
-          width: 100%;
-          height: 100%;
-          background-color: #217128;
-          border-radius: 50%;
-          box-shadow: 0 0 8px rgba(0, 0, 0, 0.3);
-          animation: pulse-dot 1.25s cubic-bezier(0.455, 0.03, 0.515, 0.955) -0.4s infinite;
-        }
-      `}</style>
-
-      {/* Header */}
-      <header className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-[20px] py-[8px] bg-surface shadow-sm transition-all duration-300">
-        <div className="flex items-center gap-[8px]">
-          <span className="font-[family-name:var(--font-source-serif)] text-[28px] leading-[36px] font-bold text-primary">
-            Maluwa Market
+    <div className="min-h-screen pt-20 pb-20 max-w-3xl mx-auto px-4">
+      {/* Success Header */}
+      <div className="text-center mb-12">
+        <div className="mb-6">
+          <span className="material-symbols-outlined text-[80px] text-secondary">
+            check_circle
           </span>
         </div>
-        <div className="flex items-center gap-[16px]">
-          <button className="material-symbols-outlined text-on-surface-variant p-2 hover:bg-surface-container-low rounded-full transition-colors active:scale-95 duration-150">
-            shopping_cart
-          </button>
-          <button className="material-symbols-outlined text-on-surface-variant p-2 hover:bg-surface-container-low rounded-full transition-colors active:scale-95 duration-150">
-            account_circle
-          </button>
-        </div>
-      </header>
+        <h1 className="font-[family-name:var(--font-source-serif)] text-[32px] leading-[40px] font-semibold text-on-surface mb-2">
+          Order Confirmed!
+        </h1>
+        <p className="text-on-surface-variant text-[16px]">
+          Thank you for your order. We&apos;ll process it shortly.
+        </p>
+      </div>
 
-      <main className="flex-grow pt-24 pb-32 px-[20px] max-w-2xl mx-auto w-full">
-        {/* Payment Status Card */}
-        <section className="bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden border border-outline-variant/30 text-center p-[32px] flex flex-col items-center">
-          {/* Animated Pulse */}
-          <div className="pulse-animation mb-[32px]"></div>
-
-          <h1 className="font-[family-name:var(--font-source-serif)] text-[28px] leading-[36px] font-semibold text-on-surface mb-[8px]">
-            Confirm Payment on Your Phone
-          </h1>
-          <p className="font-[family-name:var(--font-be-vietnam)] text-on-surface-variant max-w-md mx-auto mb-[32px]">
-            We&apos;ve sent a secure payment request to your mobile device. Please enter your PIN to complete the transaction.
-          </p>
-
-          {/* Amount Display */}
-          <div className="bg-surface-container-low rounded-lg p-[16px] w-full mb-[32px] flex flex-col items-center">
-            <span className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant mb-[4px]">
-              TOTAL AMOUNT
-            </span>
-            <span className="font-[family-name:var(--font-source-serif)] text-[48px] leading-[56px] tracking-[-0.02em] font-bold text-primary">
-              MK 25,000
-            </span>
-          </div>
-
-          {/* Countdown Timer */}
-          <div className="flex flex-col items-center gap-[4px] mb-[32px]">
-            <div className={`flex items-center gap-[8px] ${isExpired ? "text-error" : "text-secondary"}`}>
-              <span className="material-symbols-outlined">schedule</span>
-              <span className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-bold">
-                {isExpired ? "Expired" : formattedTime}
-              </span>
-            </div>
-            <span className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant">
-              {isExpired ? "Session expired" : "Waiting for confirmation..."}
-            </span>
-          </div>
-
-          {/* Instructions */}
-          <div className="text-left w-full space-y-[16px] mb-[32px]">
-            <h3 className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold text-on-surface">
-              How to confirm:
-            </h3>
-            <ol className="space-y-[8px] font-[family-name:var(--font-be-vietnam)] text-on-surface-variant">
-              {[
-                "Unlock your phone and check for the payment prompt.",
-                "Enter your Airtel Money or TNM Mpamba PIN.",
-                "Once confirmed, click 'Check Payment Status' below.",
-              ].map((step, i) => (
-                <li key={i} className="flex gap-[16px]">
-                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-secondary text-on-secondary flex items-center justify-center text-xs font-bold">
-                    {i + 1}
-                  </span>
-                  {step}
-                </li>
-              ))}
-            </ol>
-          </div>
-
-          {/* Main Actions */}
-          <div className="w-full flex flex-col gap-[8px]">
-            <button className="w-full bg-primary text-on-primary font-bold py-[16px] rounded-lg shadow-sm hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-[8px]">
-              Check Payment Status
-              <span className="material-symbols-outlined">sync</span>
-            </button>
-            <button className="w-full bg-surface-container text-on-surface-variant font-medium py-[16px] rounded-lg hover:bg-surface-container-high transition-colors active:scale-[0.98]">
-              Cancel Transaction
-            </button>
-          </div>
-        </section>
-
-        {/* Help Section */}
-        <section className="mt-[32px] bg-surface-container-low rounded-xl p-[32px] border border-outline-variant/20 flex flex-col md:flex-row items-center justify-between gap-[16px]">
-          <div className="flex items-center gap-[16px] text-left">
-            <div className="w-12 h-12 rounded-full bg-secondary-container text-on-secondary-container flex items-center justify-center">
-              <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
-                support_agent
-              </span>
-            </div>
-            <div>
-              <h4 className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold text-on-surface">
-                Need Help?
-              </h4>
-              <p className="font-[family-name:var(--font-be-vietnam)] text-on-surface-variant">
-                Our Lilongwe team is available via WhatsApp.
-              </p>
-            </div>
-          </div>
-          <Link
-            className="flex items-center gap-[8px] text-secondary font-bold hover:underline transition-all"
-            href="#"
-          >
-            <span className="material-symbols-outlined">chat</span>
-            Message Support
-          </Link>
-        </section>
-
-        {/* Product Visual */}
-        <div className="mt-[32px] relative rounded-xl overflow-hidden h-40 shadow-sm">
-          <Image
-            src="https://lh3.googleusercontent.com/aida-public/AB6AXuBTPfmhhI4nb7EEWy7h43FTifFb_pWTv3Fb1fxgJ9dVb8Dg3vyExHqoZGKGFEy5QBoDaBsyQQ-WYOe3SW3O3wwZFb8ydqH-XoLV7esknh-YkZZywPN37UiSYFGvcVsDWzXmXGxd74uow0fCORLhMfxXYGwY_uGxu3l1Ok_BNM_X7Jw3bCp_Fep9SOVgs2fJpC46DRadhXLZ8sqGAQFSBoHObrc-N3yOVXcfHGsLcOBR3Vtjje8CO7bTuuVystPg6tCO1IErNjFbF2g"
-            alt="Premium Zomba Bouquet"
-            fill
-            className="object-cover"
-            sizes="100vw"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-[16px]">
-            <p className="text-white font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold">
-              Premium Zomba Bouquet
+      {/* Order Details */}
+      <div className="bg-surface-container-low p-8 rounded-lg border border-outline-variant mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 mb-8">
+          {/* Order Number */}
+          <div>
+            <p className="text-on-surface-variant text-[12px] font-semibold mb-2">ORDER NUMBER</p>
+            <p className="font-[family-name:var(--font-source-serif)] text-[20px] font-semibold text-on-surface">
+              {order.id}
             </p>
           </div>
-        </div>
-      </main>
 
-      {/* Bottom Navigation Bar (Mobile only) */}
-      <nav className="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 py-3 pb-safe bg-surface shadow-[0px_-4px_20px_rgba(0,0,0,0.05)] rounded-t-xl">
+          {/* Date */}
+          <div>
+            <p className="text-on-surface-variant text-[12px] font-semibold mb-2">ORDER DATE</p>
+            <p className="font-[family-name:var(--font-source-serif)] text-[20px] font-semibold text-on-surface">
+              {new Date(order.dateCreated || "").toLocaleDateString()}
+            </p>
+          </div>
+
+          {/* Status */}
+          <div>
+            <p className="text-on-surface-variant text-[12px] font-semibold mb-2">STATUS</p>
+            <div className="flex items-center gap-2">
+              <span
+                className={`px-3 py-1 rounded-full text-[12px] font-semibold capitalize ${
+                  order.status === "pending"
+                    ? "bg-tertiary-fixed text-on-tertiary-fixed"
+                    : order.status === "confirmed"
+                      ? "bg-secondary-container text-on-secondary-container"
+                      : "bg-secondary-fixed text-on-secondary-fixed"
+                }`}
+              >
+                {order.status}
+              </span>
+            </div>
+          </div>
+
+          {/* Payment Status */}
+          <div>
+            <p className="text-on-surface-variant text-[12px] font-semibold mb-2">PAYMENT STATUS</p>
+            <span
+              className={`px-3 py-1 rounded-full text-[12px] font-semibold capitalize ${
+                order.paymentStatus === "pending"
+                  ? "bg-tertiary-fixed text-on-tertiary-fixed"
+                  : order.paymentStatus === "completed"
+                    ? "bg-secondary-container text-on-secondary-container"
+                    : "bg-error/20 text-error"
+              }`}
+            >
+              {order.paymentStatus}
+            </span>
+          </div>
+        </div>
+
+        {/* Divider */}
+        <hr className="border-outline-variant my-8" />
+
+        {/* Items */}
+        <div className="mb-8">
+          <h3 className="font-semibold text-on-surface mb-4">Items Ordered</h3>
+          <div className="space-y-2">
+            {order.items.map((item, idx) => (
+              <div key={idx} className="flex justify-between py-2 border-b border-outline-variant/50">
+                <div>
+                  <p className="text-on-surface font-semibold">{item.photoName}</p>
+                  <p className="text-on-surface-variant text-[12px]">
+                    Quantity: {item.quantity}
+                  </p>
+                </div>
+                <p className="font-semibold text-on-surface">K{(item.price * item.quantity).toLocaleString()}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Divider */}
+        <hr className="border-outline-variant my-8" />
+
+        {/* Pricing */}
+        <div className="space-y-2 mb-8">
+          <div className="flex justify-between">
+            <span className="text-on-surface-variant">Subtotal</span>
+            <span className="font-semibold text-on-surface">K{order.subtotal.toLocaleString()}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-on-surface-variant">Tax</span>
+            <span className="font-semibold text-on-surface">K{order.tax.toLocaleString()}</span>
+          </div>
+          <div className="flex justify-between text-[18px]">
+            <span className="font-semibold text-on-surface">Total</span>
+            <span className="font-semibold text-primary">K{order.total.toLocaleString()}</span>
+          </div>
+        </div>
+
+        {/* Divider */}
+        <hr className="border-outline-variant my-8" />
+
+        {/* Shipping & Payment Info */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+          {/* Shipping */}
+          <div>
+            <h4 className="font-semibold text-on-surface mb-4">Shipping Address</h4>
+            <div className="text-on-surface-variant text-[14px] space-y-1">
+              <div>{order.customerName}</div>
+              <div>{order.deliveryAddress}</div>
+              <div>
+                {order.city} {order.zipCode}
+              </div>
+              <div className="mt-2">{order.customerPhone}</div>
+              <div>{order.customerEmail}</div>
+            </div>
+          </div>
+
+          {/* Payment Method */}
+          <div>
+            <h4 className="font-semibold text-on-surface mb-4">Payment Information</h4>
+            <div className="text-on-surface-variant text-[14px] space-y-2">
+              <div>Method: {order.paymentMethod.replace("_", " ").toUpperCase()}</div>
+              <div>Status: {order.paymentStatus.toUpperCase()}</div>
+              {order.notes && (
+                <div className="mt-4">
+                  <p className="text-[12px] text-on-surface-variant">Notes:</p>
+                  <p>{order.notes}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex flex-col sm:flex-row gap-4 justify-center">
         <Link
-          className="flex flex-col items-center justify-center text-on-surface-variant hover:text-primary transition-colors"
-          href="/"
-        >
-          <span className="material-symbols-outlined">home</span>
-          <span className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold">
-            Home
-          </span>
-        </Link>
-        <Link
-          className="flex flex-col items-center justify-center text-on-surface-variant hover:text-primary transition-colors"
           href="/flowers"
+          className="px-8 py-3 border-2 border-primary text-primary font-semibold rounded-lg hover:bg-primary/10 text-center"
         >
-          <span className="material-symbols-outlined">search</span>
-          <span className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold">
-            Browse
-          </span>
+          Continue Shopping
         </Link>
-        <Link
-          className="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1"
-          href="/cart"
+        <button
+          onClick={() => window.print()}
+          className="px-8 py-3 bg-surface-container text-on-surface font-semibold rounded-lg hover:bg-surface-container-high"
         >
-          <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
-            shopping_basket
-          </span>
-          <span className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold">
-            Cart
-          </span>
-        </Link>
-        <Link
-          className="flex flex-col items-center justify-center text-on-surface-variant hover:text-primary transition-colors"
-          href="#"
-        >
-          <span className="material-symbols-outlined">person</span>
-          <span className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold">
-            Profile
-          </span>
-        </Link>
-      </nav>
-    </>
+          Print Order
+        </button>
+      </div>
+
+      {/* Email Notice */}
+      <div className="mt-12 p-6 bg-secondary-container rounded-lg text-center">
+        <p className="text-on-secondary-container font-semibold">
+          A confirmation email has been sent to <span className="font-bold">{order.customerEmail}</span>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export default function OrderConfirmationPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen pt-20 pb-20 max-w-3xl mx-auto px-4 flex items-center justify-center">
+        <p className="text-on-surface-variant">Loading order details...</p>
+      </div>
+    }>
+      <OrderConfirmationContent />
+    </Suspense>
   );
 }

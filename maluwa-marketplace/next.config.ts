@@ -4,14 +4,22 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
       {
-        protocol: 'https',
-        hostname: 'lh3.googleusercontent.com',
-        pathname: '/aida-public/**',
+        protocol: "https",
+        hostname: "lh3.googleusercontent.com",
       },
       {
-        protocol: 'https',
-        hostname: 'api.dicebear.com',
-        pathname: '/**',
+        protocol: "https",
+        hostname: "thursd.com",
+      },
+      {
+        protocol: "http",
+        hostname: "localhost",
+        port: "3001",
+      },
+      {
+        protocol: "http",
+        hostname: "127.0.0.1",
+        port: "3001",
       },
     ],
   },

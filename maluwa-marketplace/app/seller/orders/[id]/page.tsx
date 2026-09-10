@@ -1,424 +1,487 @@
 "use client";
 
-import Image from "next/image";
-import Link from "next/link";
-import { useParams } from "next/navigation";
 import { useState, useEffect } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { orderService, Order } from "@/lib/services/orderService";
+import { notificationService } from "@/lib/services/notificationService";
 
-type OrderStatus = "pending" | "preparing" | "ready" | "out_for_delivery" | "delivered" | "cancelled";
-
-interface OrderItem {
-  id: string;
-  name: string;
-  quantity: number;
-  price: number;
-  image: string;
-}
-
-interface OrderDetail {
-  id: string;
-  customerName: string;
-  customerPhone: string;
-  customerEmail: string;
-  customerAvatar?: string;
-  orderDate: string;
-  deliveryAddress: string;
-  deliveryMethod: string;
-  paymentMethod: string;
-  items: OrderItem[];
-  subtotal: number;
-  deliveryFee: number;
-  serviceCharge: number;
-  total: number;
-  status: OrderStatus;
-  notes?: string;
-}
-
-export default function OrderDetailPage() {
+export default function OrderDetail() {
   const params = useParams();
-  const orderId = params.id as string;
+  const router = useRouter();
+  const id = params?.id as string;
+  const [order, setOrder] = useState<Order | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(false);
+  const [paymentProofVerified, setPaymentProofVerified] = useState(false);
 
-  const [order, setOrder] = useState<OrderDetail | null>(null);
-  const [showStatusModal, setShowStatusModal] = useState(false);
-  const [selectedStatus, setSelectedStatus] = useState<OrderStatus>("pending");
+  // --- Reject-order state ---
+  const [showRejectForm, setShowRejectForm] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [rejecting, setRejecting] = useState(false);
 
   useEffect(() => {
-    // Mock data - in production, fetch from API
-    const mockOrders: { [key: string]: OrderDetail } = {
-      "MB-4029": {
-        id: "MB-4029",
-        customerName: "Tiwonge Mtambalika",
-        customerPhone: "+265 991 234 567",
-        customerEmail: "tiwonge.m@email.com",
-        orderDate: "Oct 24, 2024, 10:30 AM",
-        deliveryAddress: "Area 47, Plot 123, Lilongwe",
-        deliveryMethod: "Standard Delivery",
-        paymentMethod: "Airtel Money",
-        status: "pending",
-        items: [
-          {
-            id: "1",
-            name: "Luminous Lilies",
-            quantity: 2,
-            price: 25000,
-            image:
-              "https://lh3.googleusercontent.com/aida-public/AB6AXuDbozD8g1vrExMrmjoMLdZdmzNfDgb98uronwqshlSTSnbeEebIzbhVe-4vK9fpplXKJQtnR3Yfb3nrxRfPRyKw3Os4y2ceA_aZDb77HFlF0Y21tNg62gKt6oqp9ixSfBsFJtHcR0hax1xDlVGOkcXhflJmnT-Bg0VBo_b3JRl5aQlmGGwQzwqxxFl3XKpqg3RMijHA8PVvvTTwdwkR9RQ9CZYw2udFchuhiPMp21cfn5IdGPuWOtmp5woQUXm1Aejes5bQuTFqg5k",
-          },
-        ],
-        subtotal: 50000,
-        deliveryFee: 4500,
-        serviceCharge: 1200,
-        total: 55700,
-        notes: "Please deliver before 2 PM. It's a surprise gift.",
-      },
-      "MB-4030": {
-        id: "MB-4030",
-        customerName: "Chimwemwe Kaunda",
-        customerPhone: "+265 888 765 432",
-        customerEmail: "chimwemwe.k@email.com",
-        orderDate: "Oct 23, 2024, 2:15 PM",
-        deliveryAddress: "City Centre, Glyn Jones Road, Blantyre",
-        deliveryMethod: "Express Delivery",
-        paymentMethod: "TNM Mpamba",
-        status: "preparing",
-        items: [
-          {
-            id: "1",
-            name: "Flame Tree Roses",
-            quantity: 3,
-            price: 12500,
-            image:
-              "https://lh3.googleusercontent.com/aida-public/AB6AXuCYJYFbrC01s2MBz4Rqqhd1m8xQN-UNsMBf-f9luuz3pCUK88xZIBFu4m-j7Rn0LrMj76OtWPyWVOyLFf7hN99JT8zJ7ke0HwPYXiLlxb7MAHZ1DTV6-OuiewFclbvjANg6o6sJBeO7Ji0nmbPyJr6gVCGYNTc9Zc8-ENNyg8wkyfDd9mDnG4KeBuArdHlwyOlCxQgVi5rJQ5ApTkrWI_yeHJxPZ4a2dxd7zuyNjNiIARfFxZyNsjY_Id2OYI_BCs9DtfGLPOIdXo0",
-          },
-          {
-            id: "2",
-            name: "Zomba Protea",
-            quantity: 1,
-            price: 18200,
-            image:
-              "https://lh3.googleusercontent.com/aida-public/AB6AXuCG_y6KUJpT4vHgHVUtYBb2p60s9oGVGLVFxKtCZ0BRuY54iyAUICUQMn59WidEct1K7p3Z2vPDaflNQIFNR6scDpkKX2Kbk9rl1uW9B1tGR1-C45oxgkbk3oQvFJwl5U_nazNIwHGb9SQvZ445_YRHoPPpohMVUHEuXBJdSdB-oTzKA02dI6pvSi42eldjrztoeAGPYshMLkq7rGgUeuldOMB2evMTnLzIxmRLtmXAeZn9D5-ucGvuWvCwXKtzoKOVUsVqXOd0m3Y",
-          },
-        ],
-        subtotal: 55700,
-        deliveryFee: 6000,
-        serviceCharge: 1200,
-        total: 62900,
-      },
+    const loadOrder = async () => {
+      try {
+        if (!id) {
+          setLoading(false);
+          return;
+        }
+        const data = await orderService.getOrderById(id);
+        setOrder(data);
+      } catch (err) {
+        notificationService.error("Failed to load order");
+      } finally {
+        setLoading(false);
+      }
     };
 
-    const orderData = mockOrders[orderId];
-    if (orderData) {
-      setOrder(orderData);
-      setSelectedStatus(orderData.status);
-    }
-  }, [orderId]);
+    loadOrder();
+  }, [id]);
 
-  const handleStatusUpdate = () => {
-    if (order) {
-      setOrder({ ...order, status: selectedStatus });
-      setShowStatusModal(false);
-    }
-  };
+  const handleStatusChange = async (newStatus: Order["status"]) => {
+    if (!order) return;
 
-  const getStatusInfo = (status: OrderStatus) => {
-    switch (status) {
-      case "pending":
-        return { label: "Pending", color: "bg-tertiary-container text-on-tertiary-container", icon: "schedule" };
-      case "preparing":
-        return { label: "Preparing", color: "bg-primary-container text-on-primary-container", icon: "inventory" };
-      case "ready":
-        return { label: "Ready for Pickup", color: "bg-secondary-container text-on-secondary-container", icon: "check_circle" };
-      case "out_for_delivery":
-        return { label: "Out for Delivery", color: "bg-secondary-fixed text-on-secondary-fixed", icon: "local_shipping" };
-      case "delivered":
-        return { label: "Delivered", color: "bg-surface-variant text-on-surface-variant", icon: "task_alt" };
-      case "cancelled":
-        return { label: "Cancelled", color: "bg-error-container text-on-error-container", icon: "cancel" };
-      default:
-        return { label: "Unknown", color: "bg-surface-container text-on-surface-variant", icon: "help" };
+    setUpdating(true);
+    try {
+      const updated = await orderService.updateOrderStatus(order._id || order.id || "", newStatus);
+      setOrder(updated);
+      notificationService.success(`Order marked as ${newStatus}`);
+    } catch (err: any) {
+      notificationService.error(err.response?.data?.message || "Failed to update order");
+    } finally {
+      setUpdating(false);
     }
   };
 
-  if (!order) {
+  const handleApproveOrder = async () => {
+    if (!order) return;
+
+    // Verify payment if mobile money or bank transfer
+    if (["mobile_money", "bank_transfer"].includes(order.paymentMethod)) {
+      if (!paymentProofVerified) {
+        notificationService.warning("Please verify the payment proof first");
+        return;
+      }
+    }
+
+    await handleStatusChange("confirmed");
+  };
+
+  const handleProcessOrder = async () => {
+    if (!order) return;
+    await handleStatusChange("processing");
+  };
+
+  const handleMarkShipped = async () => {
+    if (!order) return;
+    await handleStatusChange("shipped");
+  };
+
+  const handleRejectOrder = async () => {
+    if (!order) return;
+
+    if (!rejectReason.trim()) {
+      notificationService.warning("Please provide a reason for rejecting this order");
+      return;
+    }
+
+    setRejecting(true);
+    try {
+      const updated = await orderService.rejectOrder(order._id || order.id || "", rejectReason.trim());
+      setOrder(updated);
+      setShowRejectForm(false);
+      setRejectReason("");
+      notificationService.success("Order rejected. The customer has been notified with the reason.");
+    } catch (err: any) {
+      notificationService.error(err.response?.data?.message || "Failed to reject order");
+    } finally {
+      setRejecting(false);
+    }
+  };
+
+  if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center p-8">
-        <div className="text-center">
-          <span className="material-symbols-outlined text-6xl text-on-surface-variant mb-4">receipt_long</span>
-          <p className="font-[family-name:var(--font-source-serif)] text-[24px] leading-[32px] font-semibold text-on-surface">
-            Order not found
-          </p>
-          <Link href="/seller/orders" className="text-primary hover:underline mt-4 inline-block">
-            Back to Orders
-          </Link>
-        </div>
+      <div className="p-6 flex justify-center items-center min-h-[400px]">
+        <p className="text-on-surface-variant">Loading order...</p>
       </div>
     );
   }
 
-  const statusInfo = getStatusInfo(order.status);
+  if (!order) {
+    return (
+      <div className="p-6 flex justify-center items-center min-h-[400px]">
+        <p className="text-error">Order not found</p>
+      </div>
+    );
+  }
+
+  const nextStatuses: Record<Order["status"], Order["status"] | null> = {
+    pending: "confirmed",
+    confirmed: "processing",
+    processing: "shipped",
+    shipped: "delivered",
+    delivered: null,
+    cancelled: null,
+  };
 
   return (
-    <div className="flex-1 overflow-y-auto pb-24 md:pb-8">
-      <div className="max-w-5xl mx-auto px-[20px] py-[32px]">
-        {/* Header */}
-        <div className="mb-8">
-          <Link
-            href="/seller/orders"
-            className="inline-flex items-center gap-2 text-on-surface-variant hover:text-primary transition-colors mb-4 font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold"
-          >
-            <span className="material-symbols-outlined text-[16px]">arrow_back</span>
-            Back to Orders
-          </Link>
-          <div className="flex items-start justify-between">
+    <div className="p-6 pb-20 md:pb-6">
+      <button
+        onClick={() => router.back()}
+        className="mb-6 text-primary font-bold hover:underline flex items-center gap-2"
+      >
+        <span className="material-symbols-outlined">arrow_back</span>
+        Back to Orders
+      </button>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Order Info */}
+        <div className="bg-surface rounded-lg shadow-md p-6 border border-outline-variant">
+          <h2 className="font-bold text-[20px] mb-4 text-on-surface">
+            Order #{order._id?.toString().slice(-6) || order.id?.slice(-6)}
+          </h2>
+
+          <div className="space-y-3">
             <div>
-              <h1 className="font-[family-name:var(--font-source-serif)] text-[32px] leading-[40px] md:text-[48px] md:leading-[56px] font-bold text-primary">
-                Order #{order.id}
-              </h1>
-              <p className="font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px] text-on-surface-variant mt-2">
-                {order.orderDate}
-              </p>
+              <span className="text-on-surface-variant text-sm">Date</span>
+              <p className="font-bold">{new Date(order.dateCreated || "").toLocaleDateString()}</p>
             </div>
-            <button
-              onClick={() => setShowStatusModal(true)}
-              className="px-6 py-3 bg-primary text-on-primary rounded-xl font-bold flex items-center gap-2 hover:opacity-90 transition-all shadow-md"
-            >
-              <span className="material-symbols-outlined">edit</span>
-              Update Status
-            </button>
+            <div>
+              <span className="text-on-surface-variant text-sm">Current Status</span>
+              <p className="font-bold capitalize text-lg">{order.status}</p>
+            </div>
+            <div>
+              <span className="text-on-surface-variant text-sm">Payment Status</span>
+              <p className="font-bold capitalize">{order.paymentStatus}</p>
+            </div>
+            <div>
+              <span className="text-on-surface-variant text-sm">Payment Method</span>
+              <p className="font-bold capitalize">{order.paymentMethod?.replace("_", " ")}</p>
+            </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column - Order Details */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Order Items */}
-            <section className="bg-surface-container-low rounded-2xl p-6 shadow-sm border border-outline-variant/30">
-              <h2 className="font-[family-name:var(--font-source-serif)] text-[24px] leading-[32px] font-semibold text-on-surface mb-6 flex items-center gap-2">
-                <span className="material-symbols-outlined text-primary">shopping_bag</span>
-                Order Items
-              </h2>
-              <div className="space-y-4">
-                {order.items.map((item) => (
-                  <div key={item.id} className="flex items-center gap-4 p-4 bg-surface rounded-xl">
-                    <div className="w-20 h-20 rounded-lg overflow-hidden relative flex-shrink-0">
-                      <Image src={item.image} alt={item.name} fill className="object-cover" sizes="80px" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-[family-name:var(--font-source-serif)] text-[18px] leading-[24px] font-semibold text-on-surface">
-                        {item.name}
-                      </h3>
-                      <p className="font-[family-name:var(--font-be-vietnam)] text-[14px] leading-[20px] text-on-surface-variant">
-                        Quantity: {item.quantity}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold text-primary">
-                        MK {(item.price * item.quantity).toLocaleString()}
-                      </p>
-                      <p className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant">
-                        @ MK {item.price.toLocaleString()} each
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+        {/* Customer Info */}
+        <div className="bg-surface rounded-lg shadow-md p-6 border border-outline-variant">
+          <h2 className="font-bold text-[20px] mb-4 text-on-surface">Customer Info</h2>
 
-              {/* Order Total */}
-              <div className="mt-6 pt-6 border-t border-outline-variant space-y-3">
-                <div className="flex justify-between font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px] text-on-surface-variant">
-                  <span>Subtotal</span>
-                  <span>MK {order.subtotal.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px] text-on-surface-variant">
-                  <span>Delivery Fee</span>
-                  <span>MK {order.deliveryFee.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px] text-on-surface-variant">
-                  <span>Service Charge</span>
-                  <span>MK {order.serviceCharge.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between font-[family-name:var(--font-source-serif)] text-[24px] leading-[32px] font-bold text-on-surface pt-3 border-t border-outline-variant">
-                  <span>Total</span>
-                  <span className="text-primary">MK {order.total.toLocaleString()}</span>
-                </div>
-              </div>
-            </section>
+          <div className="space-y-3">
+            <div>
+              <span className="text-on-surface-variant text-sm">Name</span>
+              <p className="font-bold">{order.customerName}</p>
+            </div>
+            <div>
+              <span className="text-on-surface-variant text-sm">Email</span>
+              <p className="font-bold text-primary">{order.customerEmail}</p>
+            </div>
+            <div>
+              <span className="text-on-surface-variant text-sm">Phone</span>
+              <p className="font-bold">{order.customerPhone}</p>
+            </div>
+          </div>
+        </div>
 
-            {/* Customer Notes */}
-            {order.notes && (
-              <section className="bg-tertiary-fixed p-6 rounded-2xl border border-tertiary/20">
-                <h3 className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold text-on-tertiary-fixed mb-3 flex items-center gap-2">
-                  <span className="material-symbols-outlined">sticky_note_2</span>
-                  Customer Notes
-                </h3>
-                <p className="font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px] text-on-tertiary-fixed-variant">
-                  {order.notes}
+        {/* Payment Proof Section - For Mobile Money & Bank Transfer */}
+        {["mobile_money", "bank_transfer"].includes(order.paymentMethod) && order.status === "pending" && (
+          <div className="bg-surface rounded-lg shadow-md p-6 border border-outline-variant md:col-span-2">
+            <h2 className="font-bold text-[20px] mb-4 text-on-surface">Payment Proof Verification</h2>
+
+            <div className="space-y-4">
+              <div className="p-4 bg-tertiary-container rounded-lg">
+                <p className="text-on-surface-variant text-sm font-semibold mb-3">
+                  ⚠️ Customer notes: {order.notes || "No additional notes provided"}
                 </p>
-              </section>
+                <p className="text-on-surface-variant text-sm">
+                  Method: {order.paymentMethod === "mobile_money" ? "Mobile Money (Airtel/TNM)" : "Bank Transfer"}
+                </p>
+              </div>
+
+              {/* Payment Proof Viewer */}
+              {order.paymentProof ? (
+                <div className="space-y-3">
+                  <h3 className="font-semibold text-on-surface">Uploaded Payment Proof:</h3>
+
+                  {/* Display the proof file */}
+                  {(() => {
+                    const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+                    const proofUrl = `${apiBase}${order.paymentProof}`;
+                    const isPdf = order.paymentProof.toLowerCase().endsWith('.pdf');
+
+                    return isPdf ? (
+                      <div className="border border-outline-variant rounded-lg p-4">
+                        <p className="text-on-surface-variant text-sm mb-3">PDF Document</p>
+                        <a
+                          href={proofUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-lg hover:opacity-90 transition-all"
+                        >
+                          <span className="material-symbols-outlined text-sm">file_download</span>
+                          View PDF
+                        </a>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="border border-outline-variant rounded-lg overflow-hidden">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={proofUrl}
+                            alt="Payment proof"
+                            className="w-full max-h-80 object-contain bg-surface-container-high"
+                          />
+                        </div>
+                        <a
+                          href={proofUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary text-sm hover:underline flex items-center gap-1"
+                        >
+                          <span className="material-symbols-outlined text-sm">open_in_new</span>
+                          View Full Size
+                        </a>
+                      </>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <div className="p-4 bg-warning-container rounded-lg">
+                  <p className="text-on-warning-container font-semibold text-sm">
+                    ℹ️ No payment proof uploaded by customer
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="flex items-center gap-3 p-3 border-2 border-dashed border-primary rounded-lg cursor-pointer hover:bg-primary/5 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={paymentProofVerified}
+                    onChange={(e) => setPaymentProofVerified(e.target.checked)}
+                    className="w-5 h-5 rounded accent-primary"
+                  />
+                  <span className="text-on-surface font-semibold">
+                    ✓ I have verified the payment proof is legitimate
+                  </span>
+                </label>
+              </div>
+
+              {paymentProofVerified && (
+                <div className="p-3 bg-secondary-container rounded text-on-secondary-container text-sm font-semibold">
+                  ✓ Payment verified - You can now approve this order
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Delivery Info */}
+        <div className="bg-surface rounded-lg shadow-md p-6 border border-outline-variant md:col-span-2">
+          <h2 className="font-bold text-[20px] mb-4 text-on-surface">Delivery Address</h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <span className="text-on-surface-variant text-sm">Address</span>
+              <p className="font-bold">{order.deliveryAddress}</p>
+            </div>
+            <div>
+              <span className="text-on-surface-variant text-sm">City</span>
+              <p className="font-bold">{order.city}</p>
+            </div>
+            {order.zipCode && (
+              <div>
+                <span className="text-on-surface-variant text-sm">Zip Code</span>
+                <p className="font-bold">{order.zipCode}</p>
+              </div>
             )}
           </div>
 
-          {/* Right Column - Customer & Delivery Info */}
-          <div className="space-y-6">
-            {/* Status Card */}
-            <section className="bg-surface-container-low rounded-2xl p-6 shadow-sm border border-outline-variant/30">
-              <h3 className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold text-on-surface mb-4">
-                Order Status
-              </h3>
-              <div className={`p-4 rounded-xl ${statusInfo.color} flex items-center gap-3`}>
-                <span className="material-symbols-outlined text-3xl">{statusInfo.icon}</span>
-                <div>
-                  <p className="font-bold text-lg">{statusInfo.label}</p>
-                  <p className="text-sm opacity-80">Current status</p>
-                </div>
-              </div>
-            </section>
+          {order.notes && (
+            <div className="mt-4">
+              <span className="text-on-surface-variant text-sm">Delivery Notes</span>
+              <p className="font-bold">{order.notes}</p>
+            </div>
+          )}
+        </div>
 
-            {/* Customer Info */}
-            <section className="bg-surface-container-low rounded-2xl p-6 shadow-sm border border-outline-variant/30">
-              <h3 className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold text-on-surface mb-4 flex items-center gap-2">
-                <span className="material-symbols-outlined text-primary">person</span>
-                Customer
-              </h3>
-              <div className="space-y-3">
-                <p className="font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px] text-on-surface font-bold">
-                  {order.customerName}
-                </p>
-                <div className="flex items-center gap-2 text-on-surface-variant">
-                  <span className="material-symbols-outlined text-[18px]">phone</span>
-                  <p className="font-[family-name:var(--font-be-vietnam)] text-[14px] leading-[20px]">
-                    {order.customerPhone}
+        {/* Order Items */}
+        <div className="bg-surface rounded-lg shadow-md p-6 border border-outline-variant md:col-span-2">
+          <h2 className="font-bold text-[20px] mb-4 text-on-surface">Order Items</h2>
+
+          <div className="space-y-3">
+            {order.items.map((item, idx) => (
+              <div
+                key={idx}
+                className="flex justify-between items-center p-3 bg-surface-container-low rounded border border-outline-variant"
+              >
+                <div>
+                  <p className="font-bold">{item.photoName}</p>
+                  <p className="text-on-surface-variant text-sm">Quantity: {item.quantity}</p>
+                </div>
+                <div className="text-right">
+                  <p className="font-bold text-primary">K{item.price.toLocaleString()}</p>
+                  <p className="text-on-surface-variant text-sm">
+                    K{(item.price * item.quantity).toLocaleString()} total
                   </p>
                 </div>
-                {order.customerEmail && (
-                  <div className="flex items-center gap-2 text-on-surface-variant">
-                    <span className="material-symbols-outlined text-[18px]">email</span>
-                    <p className="font-[family-name:var(--font-be-vietnam)] text-[14px] leading-[20px]">
-                      {order.customerEmail}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Pricing */}
+        <div className="bg-surface rounded-lg shadow-md p-6 border border-outline-variant md:col-span-2">
+          <h2 className="font-bold text-[20px] mb-4 text-on-surface">Pricing</h2>
+
+          <div className="space-y-3">
+            <div className="flex justify-between">
+              <span className="text-on-surface-variant">Subtotal</span>
+              <span className="font-bold">K{order.subtotal.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-on-surface-variant">Tax (10%)</span>
+              <span className="font-bold">K{order.tax.toLocaleString()}</span>
+            </div>
+            <div className="border-t border-outline-variant pt-3 flex justify-between">
+              <span className="text-on-surface font-bold">Total</span>
+              <span className="font-bold text-primary text-[20px]">K{order.total.toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Status Actions */}
+        <div className="bg-surface rounded-lg shadow-md p-6 border border-outline-variant md:col-span-2">
+          <h2 className="font-bold text-[20px] mb-4 text-on-surface">Order Actions</h2>
+
+          <div className="space-y-3">
+            {order.status === "pending" && (
+              <>
+                <button
+                  onClick={handleApproveOrder}
+                  disabled={updating || (["mobile_money", "bank_transfer"].includes(order.paymentMethod) && !paymentProofVerified)}
+                  className="w-full px-4 py-3 bg-secondary text-on-secondary font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  ✓ Approve & Confirm Order
+                </button>
+                <p className="text-on-surface-variant text-sm">
+                  Review the order details and payment proof above, then click to confirm you've received valid payment.
+                </p>
+
+                {!showRejectForm ? (
+                  <button
+                    onClick={() => setShowRejectForm(true)}
+                    disabled={updating}
+                    className="w-full px-4 py-3 bg-error-container text-on-error font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 transition-all"
+                  >
+                    ✕ Reject Order (Invalid Payment Proof)
+                  </button>
+                ) : (
+                  <div className="p-4 border-2 border-error rounded-lg space-y-3">
+                    <label className="block font-bold text-on-surface text-sm">
+                      Why is this order being rejected?
+                    </label>
+                    <p className="text-on-surface-variant text-xs">
+                      This reason will be sent to the customer, so be specific and professional.
                     </p>
+                    <textarea
+                      value={rejectReason}
+                      onChange={(e) => setRejectReason(e.target.value)}
+                      placeholder="e.g., Payment proof does not match the order total, or the transaction reference could not be verified"
+                      rows={3}
+                      className="w-full px-4 py-2 border border-outline rounded-lg focus:ring-2 focus:ring-error"
+                    />
+                    <div className="flex gap-3">
+                      <button
+                        onClick={handleRejectOrder}
+                        disabled={rejecting || !rejectReason.trim()}
+                        className="flex-1 py-2 bg-error text-white font-bold rounded-lg hover:opacity-90 disabled:opacity-50 transition-all"
+                      >
+                        {rejecting ? "Rejecting..." : "Confirm Rejection"}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowRejectForm(false);
+                          setRejectReason("");
+                        }}
+                        disabled={rejecting}
+                        className="flex-1 py-2 bg-surface-container text-on-surface font-bold rounded-lg hover:opacity-90 disabled:opacity-50 transition-all"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                 )}
-              </div>
-            </section>
+              </>
+            )}
 
-            {/* Delivery Info */}
-            <section className="bg-surface-container-low rounded-2xl p-6 shadow-sm border border-outline-variant/30">
-              <h3 className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold text-on-surface mb-4 flex items-center gap-2">
-                <span className="material-symbols-outlined text-primary">local_shipping</span>
-                Delivery
-              </h3>
-              <div className="space-y-4">
-                <div>
-                  <p className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant uppercase mb-1">
-                    Address
-                  </p>
-                  <p className="font-[family-name:var(--font-be-vietnam)] text-[14px] leading-[20px] text-on-surface">
-                    {order.deliveryAddress}
-                  </p>
-                </div>
-                <div>
-                  <p className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant uppercase mb-1">
-                    Method
-                  </p>
-                  <p className="font-[family-name:var(--font-be-vietnam)] text-[14px] leading-[20px] text-on-surface">
-                    {order.deliveryMethod}
-                  </p>
-                </div>
-              </div>
-            </section>
+            {order.status === "confirmed" && (
+              <>
+                <button
+                  onClick={handleProcessOrder}
+                  disabled={updating}
+                  className="w-full px-4 py-3 bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  ⚙️ Mark as Processing
+                </button>
+                <p className="text-on-surface-variant text-sm">
+                  Click when you start preparing the order for delivery.
+                </p>
+              </>
+            )}
 
-            {/* Payment Info */}
-            <section className="bg-surface-container-low rounded-2xl p-6 shadow-sm border border-outline-variant/30">
-              <h3 className="font-[family-name:var(--font-source-serif)] text-[20px] leading-[28px] font-semibold text-on-surface mb-4 flex items-center gap-2">
-                <span className="material-symbols-outlined text-primary">payments</span>
-                Payment
-              </h3>
-              <div>
-                <p className="font-[family-name:var(--font-be-vietnam)] text-[12px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant uppercase mb-1">
-                  Payment Method
+            {order.status === "processing" && (
+              <>
+                <button
+                  onClick={handleMarkShipped}
+                  disabled={updating}
+                  className="w-full px-4 py-3 bg-secondary-container text-on-secondary-container font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  🚚 Mark as Shipped
+                </button>
+                <p className="text-on-surface-variant text-sm">
+                  Click when the order is dispatched to the customer's delivery address.
                 </p>
-                <p className="font-[family-name:var(--font-be-vietnam)] text-[14px] leading-[20px] text-on-surface">
-                  {order.paymentMethod}
+              </>
+            )}
+
+            {order.status === "shipped" && (
+              <div className="p-4 bg-secondary-container rounded-lg">
+                <p className="text-on-secondary-container font-semibold">
+                  ⏳ Waiting for customer to confirm delivery...
+                </p>
+                <p className="text-on-secondary-container text-sm mt-2">
+                  The customer will confirm receipt on their end, then the order will be marked as delivered.
                 </p>
               </div>
-            </section>
+            )}
+
+            {order.status === "delivered" && (
+              <div className="p-4 bg-secondary-container rounded-lg">
+                <p className="text-on-secondary-container font-semibold">
+                  ✓ Order Delivered & Completed
+                </p>
+              </div>
+            )}
+
+            {order.status === "cancelled" && (
+              <div className="p-4 bg-error-container rounded-lg space-y-2">
+                <p className="text-on-error font-semibold">
+                  Order Cancelled
+                </p>
+                {order.cancellationReason && (
+                  <p className="text-on-error text-sm">
+                    <span className="font-bold">Reason given to customer:</span> {order.cancellationReason}
+                  </p>
+                )}
+                {order.cancelledBy && (
+                  <p className="text-on-error text-xs capitalize">
+                    Cancelled by: {order.cancelledBy}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
-
-      {/* Status Update Modal */}
-      {showStatusModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-surface rounded-2xl max-w-md w-full shadow-2xl">
-            <div className="p-6 border-b border-outline-variant">
-              <div className="flex items-center justify-between">
-                <h2 className="font-[family-name:var(--font-source-serif)] text-[24px] leading-[32px] font-semibold text-on-surface">
-                  Update Order Status
-                </h2>
-                <button
-                  onClick={() => setShowStatusModal(false)}
-                  className="material-symbols-outlined text-on-surface-variant hover:text-error transition-colors"
-                >
-                  close
-                </button>
-              </div>
-            </div>
-
-            <div className="p-6 space-y-4">
-              <p className="font-[family-name:var(--font-be-vietnam)] text-[14px] leading-[20px] text-on-surface-variant">
-                Select the new status for order #{order.id}
-              </p>
-
-              <div className="space-y-2">
-                {(["pending", "preparing", "ready", "out_for_delivery", "delivered", "cancelled"] as OrderStatus[]).map(
-                  (status) => {
-                    const info = getStatusInfo(status);
-                    return (
-                      <label key={status} className="block cursor-pointer">
-                        <input
-                          type="radio"
-                          name="status"
-                          value={status}
-                          checked={selectedStatus === status}
-                          onChange={(e) => setSelectedStatus(e.target.value as OrderStatus)}
-                          className="hidden"
-                        />
-                        <div
-                          className={`p-4 rounded-xl border-2 transition-all flex items-center gap-3 ${
-                            selectedStatus === status
-                              ? "border-primary bg-primary-container"
-                              : "border-outline-variant hover:border-primary/50"
-                          }`}
-                        >
-                          <span className="material-symbols-outlined text-on-surface-variant">{info.icon}</span>
-                          <span className="font-[family-name:var(--font-be-vietnam)] text-[16px] leading-[24px] font-semibold text-on-surface">
-                            {info.label}
-                          </span>
-                        </div>
-                      </label>
-                    );
-                  }
-                )}
-              </div>
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  onClick={() => setShowStatusModal(false)}
-                  className="flex-1 border-2 border-outline-variant text-on-surface-variant py-3 rounded-xl font-bold hover:bg-surface-container transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleStatusUpdate}
-                  className="flex-1 bg-primary text-on-primary py-3 rounded-xl font-bold hover:opacity-90 transition-all shadow-md"
-                >
-                  Update Status
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
